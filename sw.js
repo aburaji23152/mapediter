@@ -1,5 +1,5 @@
 // Service Worker (sw.js)
-const CACHE_NAME = 'japan-map-paint-pwa-v1.2.0';
+const CACHE_NAME = 'japan-map-paint-pwa-v1.2.1';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -12,19 +12,15 @@ const ASSETS_TO_CACHE = [
   'https://unpkg.com/lucide@latest'
 ];
 
-// インストール処理（新バージョンの即時待機解除）
 self.addEventListener('install', (event) => {
-  self.skipWaiting(); // 新しいSWをすぐに有効化
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE).catch(() => {
-        // 一部アセットの取得に失敗してもインストールを続行
-      });
+      return cache.addAll(ASSETS_TO_CACHE).catch(() => {});
     })
   );
 });
 
-// アクティベート処理（古いキャッシュの全削除）
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
@@ -35,18 +31,15 @@ self.addEventListener('activate', (event) => {
           }
         })
       );
-    }).then(() => self.clients.claim()) // 制御権を即座に確保
+    }).then(() => self.clients.claim())
   );
 });
 
-// フェッチ処理 (ネットワーク優先・オフライン時キャッシュ)
 self.addEventListener('fetch', (event) => {
-  // GETリクエスト以外はそのままネットワークへ
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
 
-  // 自ドメイン（HTML/JSON等）は Network First で常に最新を取得
   if (url.origin === location.origin) {
     event.respondWith(
       fetch(event.request).then((networkResponse) => {
@@ -58,12 +51,10 @@ self.addEventListener('fetch', (event) => {
         }
         return networkResponse;
       }).catch(() => {
-        // オフライン時はキャッシュから返す
         return caches.match(event.request);
       })
     );
   } else {
-    // 外部CDN等は Cache First（キャッシュ優先）
     event.respondWith(
       caches.match(event.request).then((cachedResponse) => {
         if (cachedResponse) {

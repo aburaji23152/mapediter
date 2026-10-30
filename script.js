@@ -27,57 +27,6 @@ const PREFECTURES = [
     { code: "46", name: "鹿児島県" }, { code: "47", name: "沖縄県" }
 ];
 
-// 各都道府県の隣接都道府県マップ
-const PREF_NEIGHBORS = {
-    "01": ["02"],
-    "02": ["01", "03", "05"],
-    "03": ["02", "04", "05"],
-    "04": ["03", "05", "06", "07"],
-    "05": ["02", "03", "04", "06"],
-    "06": ["04", "05", "07", "15"],
-    "07": ["04", "06", "08", "09", "10", "15"],
-    "08": ["07", "09", "11", "12"],
-    "09": ["07", "08", "10", "11", "15"],
-    "10": ["07", "09", "11", "15", "20"],
-    "11": ["08", "09", "10", "12", "13", "14", "19", "20"],
-    "12": ["08", "11", "13", "14"],
-    "13": ["11", "12", "14", "19"],
-    "14": ["11", "12", "13", "19", "22"],
-    "15": ["06", "07", "10", "16", "20"],
-    "16": ["15", "17", "20", "21"],
-    "17": ["16", "18", "21"],
-    "18": ["17", "21", "25", "26"],
-    "19": ["11", "13", "14", "20", "22"],
-    "20": ["10", "11", "15", "16", "19", "21", "22", "23"],
-    "21": ["16", "17", "18", "20", "22", "23", "24", "25"],
-    "22": ["14", "19", "20", "21", "23"],
-    "23": ["20", "21", "22", "24"],
-    "24": ["21", "23", "25", "26", "29", "30"],
-    "25": ["18", "21", "24", "26"],
-    "26": ["18", "24", "25", "27", "28", "29"],
-    "27": ["26", "28", "29", "30"],
-    "28": ["26", "27", "29", "31", "33", "36", "37"],
-    "29": ["24", "26", "27", "30"],
-    "30": ["24", "27", "29", "36"],
-    "31": ["28", "32", "33", "34"],
-    "32": ["31", "33", "34", "35"],
-    "33": ["28", "31", "32", "34", "37"],
-    "34": ["31", "32", "33", "35", "38"],
-    "35": ["32", "34", "40", "44"],
-    "36": ["28", "30", "37", "38", "39"],
-    "37": ["28", "33", "36", "38"],
-    "38": ["34", "36", "37", "39", "44"],
-    "39": ["36", "38"],
-    "40": ["35", "41", "42", "43", "44"],
-    "41": ["40", "42"],
-    "42": ["40", "41"],
-    "43": ["40", "44", "45", "46"],
-    "44": ["35", "38", "40", "43", "45"],
-    "45": ["43", "44", "46"],
-    "46": ["43", "45", "47"],
-    "47": ["46"]
-};
-
 const PALETTE_COLORS = [
     "#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899",
     "#06b6d4", "#f97316", "#84cc16", "#6366f1", "#14b8a6", "#64748b"
@@ -105,12 +54,12 @@ let colorState = {};
 let currentCityMap = {};
 let nationalFeaturesCache = null;
 
-// 境界線カスタマイズ状態（同郡内の町村境: county を追加）
+// 境界線カスタマイズ状態
 let boundarySettings = {
     coast: { show: true, color: "#1e293b", weight: 2.0, style: "solid" },
     pref: { show: true, color: "#0f172a", weight: 2.5, style: "solid" },
     city: { show: true, color: "#475569", weight: 1.0, style: "solid" },
-    county: { show: true, color: "#64748b", weight: 0.8, style: "dotted" },
+    county: { show: true, color: "#64748b", weight: 1.0, style: "dotted" },
     ward: { show: true, color: "#64748b", weight: 1.0, style: "dashed" }
 };
 let mapBgColor = "#f1f5f9";
@@ -727,7 +676,6 @@ function renderGeoJson(data, topologyFeatures) {
     fitToCurrentBounds();
 }
 
-// 高精度トポロジー解析 & 境界線抽出ロジック（同郡内の町村境判定を追加）
 function extractBoundaries(topologyFeatures, selectedPrefSet) {
     const edgeMap = new Map();
     const SCALE = 10000;
@@ -741,7 +689,6 @@ function extractBoundaries(topologyFeatures, selectedPrefSet) {
         const isWard = Boolean(props.N03_005) || (props.N03_004 && String(props.N03_004).endsWith("区") && props.N03_003 && String(props.N03_003).endsWith("市"));
         const seireiName = isWard ? (props.N03_003 || "") : null;
         
-        // 同郡判定（N03_003 に「郡」が含まれる場合）
         const countyName = (!isWard && props.N03_003 && String(props.N03_003).endsWith("郡")) ? props.N03_003 : null;
 
         const meta = { prefCode, cityCode, seireiName, countyName };
@@ -803,7 +750,6 @@ function extractBoundaries(topologyFeatures, selectedPrefSet) {
                     if (f1.seireiName && f2.seireiName && f1.seireiName === f2.seireiName) {
                         wardLines.push([p1, p2]);
                     } else if (f1.countyName && f2.countyName && f1.countyName === f2.countyName) {
-                        // 同じ郡に属する町村同士の境界
                         countyLines.push([p1, p2]);
                     } else {
                         cityLines.push([p1, p2]);

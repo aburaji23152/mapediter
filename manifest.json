@@ -1,6 +1,6 @@
 {
   "name": "市区町村ペイントエディタ",
-  "short_name": "市区町村ペイント",
+  "short_name": "市区町村ペイントエディタ",
   "description": "日本全国の市区町村を自由に色塗り・カスタマイズできるペイントアプリ",
   "start_url": "./index.html",
   "display": "standalone",
