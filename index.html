@@ -1,0 +1,1725 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>日本市区町村 インタラクティブ塗り絵マップ</title>
+    
+    <!-- PWA 用メタタグ & Manifest 読み込み -->
+    <meta name="theme-color" content="#0f172a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="市区町村ペイント">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='100' fill='%234f46e5'/><path d='M150 150 h212 v212 h-212 z' fill='none' stroke='white' stroke-width='30'/><circle cx='256' cy='256' r='60' fill='%2338bdf8'/></svg>">
+    <link rel="manifest" href="manifest.json">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- html2canvas (画像エクスポート用) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
+    <!-- leaflet-image (Leaflet専用キャプチャライブラリ・位置ズレ防止) -->
+    <script src="https://unpkg.com/leaflet-image@0.4.0/leaflet-image.js"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+        }
+        /* Leafletマップのカーソルカスタム */
+        .leaflet-interactive {
+            cursor: pointer;
+            transition: fill 0.2s ease, fill-opacity 0.2s ease, stroke-width 0.1s ease;
+        }
+        /* スクロールバーのカスタマイズ */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        /* カラーピッカーのスタイル整え */
+        input[type="color"]::-webkit-color-swatch-wrapper {
+            padding: 0;
+        }
+        input[type="color"]::-webkit-color-swatch {
+            border: none;
+            border-radius: 9999px;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- ヘッダー -->
+    <header class="bg-slate-900 text-white px-4 py-3 shadow-md flex flex-wrap justify-between items-center z-20 gap-3">
+        <div class="flex items-center gap-3">
+            <div class="bg-indigo-600 p-2 rounded-lg flex items-center justify-center shadow-lg">
+                <i data-lucide="map" class="w-6 h-6 text-white"></i>
+            </div>
+            <div>
+                <h1 class="text-lg font-bold leading-tight">市区町村 塗り絵ペイント</h1>
+                <p class="text-xs text-slate-400">国土数値情報 オープンデータ活用マップ</p>
+            </div>
+        </div>
+
+        <!-- 都道府県選択 & アクションボタン -->
+        <div class="flex flex-wrap items-center gap-2">
+            <!-- 都道府県複数選択ボタン -->
+            <button id="btnOpenPrefModal" class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-medium text-sm rounded-lg border border-slate-700 px-3 py-2 transition shadow-inner">
+                <i data-lucide="map-pin" class="w-4 h-4 text-indigo-400"></i>
+                <span id="selectedPrefLabel" class="truncate max-w-[150px] sm:max-w-[200px]">全国（日本全体）</span>
+                <span id="selectedPrefBadge" class="bg-indigo-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold hidden">0</span>
+                <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400"></i>
+            </button>
+
+            <div class="h-6 w-px bg-slate-700 hidden sm:block"></div>
+
+            <!-- アクションボタン群 -->
+            <button id="btnExportJson" class="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-medium px-3 py-2 rounded-lg border border-slate-700 transition shadow-sm" title="現在の塗り状態を保存">
+                <i data-lucide="download" class="w-4 h-4 text-indigo-400"></i>
+                <span class="hidden md:inline">保存 (JSON)</span>
+            </button>
+            
+            <label class="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-medium px-3 py-2 rounded-lg border border-slate-700 transition cursor-pointer shadow-sm" title="保存したJSONを復元">
+                <i data-lucide="upload" class="w-4 h-4 text-emerald-400"></i>
+                <span class="hidden md:inline">復元</span>
+                <input type="file" id="btnImportJson" accept=".json" class="hidden">
+            </label>
+
+            <button id="btnExportPng" class="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold px-3 py-2 rounded-lg transition shadow-md" title="地図を画像として保存">
+                <i data-lucide="image" class="w-4 h-4"></i>
+                <span class="hidden sm:inline">PNG保存</span>
+            </button>
+
+            <button id="btnExportSvg" class="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold px-3 py-2 rounded-lg transition shadow-md" title="ベクター地図(SVG)として保存">
+                <i data-lucide="file-code" class="w-4 h-4"></i>
+                <span>SVG保存</span>
+            </button>
+
+            <!-- PWA インストールボタン (インストール可能時に表示) -->
+            <button id="btnInstallPwa" class="hidden flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-900 text-xs font-bold px-3 py-2 rounded-lg transition shadow-md" title="アプリとしてホーム画面に追加/インストール">
+                <i data-lucide="download-cloud" class="w-4 h-4"></i>
+                <span>アプリインストール</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- メインコンテンツ領域（サイドバー + マップ） -->
+    <div class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+
+        <!-- 左サイドパネル (コントロール & 情報) -->
+        <aside class="w-full md:w-80 lg:w-96 bg-white border-r border-slate-200 flex flex-col z-10 shadow-lg shrink-0 max-h-[45vh] md:max-h-full overflow-y-auto">
+            
+            <!-- 塗りつぶし進捗状況カード -->
+            <div class="p-4 border-b border-slate-100 bg-slate-50">
+                <div class="flex justify-between items-center mb-1.5">
+                    <span id="currentPrefName" class="font-bold text-slate-800 text-base">全国（日本全体）</span>
+                    <span id="progressPercent" class="text-xs font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">0%</span>
+                </div>
+                <!-- プログレスバー -->
+                <div class="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden mb-2 shadow-inner">
+                    <div id="progressBar" class="bg-indigo-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+                <div class="flex justify-between text-xs text-slate-500">
+                    <span>塗りつぶし完了:</span>
+                    <span class="font-medium text-slate-700"><strong id="coloredCount" class="text-indigo-600 font-bold">0</strong> / <span id="totalCount">0</span> 市区町村</span>
+                </div>
+            </div>
+
+            <!-- ツールボックス & カラーパレット -->
+            <div class="p-4 border-b border-slate-100 space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">モード選択</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="btnPaintMode" class="flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg border border-indigo-600 bg-indigo-50 text-indigo-700 transition shadow-sm">
+                            <i data-lucide="paint-bucket" class="w-4 h-4"></i>
+                            塗りつぶし
+                        </button>
+                        <button id="btnEraserMode" class="flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition">
+                            <i data-lucide="eraser" class="w-4 h-4"></i>
+                            消しゴム
+                        </button>
+                    </div>
+                </div>
+
+                <!-- カラーパレット -->
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">カラーパレット</label>
+                        <!-- カスタムカラー選択 -->
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-xs text-slate-400">カスタム:</span>
+                            <input type="color" id="customColorPicker" value="#3b82f6" class="w-6 h-6 rounded-full cursor-pointer border border-slate-300 shadow-sm">
+                        </div>
+                    </div>
+                    <!-- プリセットカラー -->
+                    <div id="colorPalette" class="grid grid-cols-6 gap-2">
+                        <!-- JSでパレットボタン生成 -->
+                    </div>
+                </div>
+
+                <!-- 一括操作ボタン -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">一括操作</label>
+                    <div class="flex gap-2">
+                        <button id="btnFillAll" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium py-1.5 px-2 rounded-md transition flex items-center justify-center gap-1">
+                            <i data-lucide="maximize" class="w-3.5 h-3.5"></i>
+                            全塗る
+                        </button>
+                        <button id="btnClearAll" class="flex-1 bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-medium py-1.5 px-2 rounded-md transition flex items-center justify-center gap-1">
+                            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                            クリア
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 地図背景（タイル）切替 -->
+            <div class="p-4 border-b border-slate-100">
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">背景地図スタイル</label>
+                <div class="grid grid-cols-3 gap-1.5 bg-slate-100 p-1 rounded-lg mb-3">
+                    <button data-tile="pale" class="tile-btn active bg-white text-indigo-600 shadow-sm text-xs font-medium py-1 px-2 rounded-md transition text-center">地理院(淡色)</button>
+                    <button data-tile="std" class="tile-btn text-slate-600 hover:text-slate-900 text-xs font-medium py-1 px-2 rounded-md transition text-center">地理院(標準)</button>
+                    <button data-tile="none" class="tile-btn text-slate-600 hover:text-slate-900 text-xs font-medium py-1 px-2 rounded-md transition text-center">白地図(なし)</button>
+                </div>
+                
+                <div class="flex items-center justify-between text-xs">
+                    <span class="text-slate-600 font-medium">背景色 (海洋/余白):</span>
+                    <input type="color" id="bgColorPicker" value="#f1f5f9" class="w-6 h-6 rounded-md cursor-pointer border border-slate-300 shadow-sm">
+                </div>
+            </div>
+
+            <!-- 境界線カスタマイズ設定 -->
+            <div class="p-4 border-b border-slate-100 space-y-3">
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider">境界線表示カスタマイズ</label>
+
+                <!-- 海岸線・外郭線設定 -->
+                <div class="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="flex items-center gap-1.5 font-bold text-slate-700 cursor-pointer select-none">
+                            <input type="checkbox" id="chkCoastBoundary" checked class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+                            <span>海岸線・外郭線</span>
+                        </label>
+                        <input type="color" id="colorCoastBoundary" value="#1e293b" class="w-5 h-5 rounded cursor-pointer border border-slate-300">
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 text-[11px]">
+                        <div class="flex items-center gap-1">
+                            <span class="text-slate-500">太さ:</span>
+                            <select id="weightCoastBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                <option value="0.5">0.5px</option>
+                                <option value="1">1px</option>
+                                <option value="1.5">1.5px</option>
+                                <option value="2" selected>2px</option>
+                                <option value="2.5">2.5px</option>
+                                <option value="3">3px</option>
+                                <option value="3.5">3.5px</option>
+                                <option value="4">4px</option>
+                                <option value="4.5">4.5px</option>
+                                <option value="5">5px</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <span class="text-slate-500">線種:</span>
+                            <select id="styleCoastBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                <option value="solid" selected>実線</option>
+                                <option value="dashed">破線</option>
+                                <option value="dotted">点線</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 県境設定 -->
+                <div class="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="flex items-center gap-1.5 font-bold text-slate-700 cursor-pointer select-none">
+                            <input type="checkbox" id="chkPrefBoundary" checked class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+                            <span>都道府県境</span>
+                        </label>
+                        <input type="color" id="colorPrefBoundary" value="#0f172a" class="w-5 h-5 rounded cursor-pointer border border-slate-300">
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 text-[11px]">
+                        <div class="flex items-center gap-1">
+                            <span class="text-slate-500">太さ:</span>
+                            <select id="weightPrefBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                <option value="0.5">0.5px</option>
+                                <option value="1">1px</option>
+                                <option value="1.5">1.5px</option>
+                                <option value="2">2px</option>
+                                <option value="2.5" selected>2.5px</option>
+                                <option value="3">3px</option>
+                                <option value="3.5">3.5px</option>
+                                <option value="4">4px</option>
+                                <option value="4.5">4.5px</option>
+                                <option value="5">5px</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <span class="text-slate-500">線種:</span>
+                            <select id="stylePrefBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                <option value="solid" selected>実線</option>
+                                <option value="dashed">破線</option>
+                                <option value="dotted">点線</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 市町村境設定 -->
+                <div class="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="flex items-center gap-1.5 font-bold text-slate-700 cursor-pointer select-none">
+                            <input type="checkbox" id="chkCityBoundary" checked class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+                            <span>市区町村境</span>
+                        </label>
+                        <input type="color" id="colorCityBoundary" value="#475569" class="w-5 h-5 rounded cursor-pointer border border-slate-300">
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 text-[11px]">
+                        <div class="flex items-center gap-1">
+                            <span class="text-slate-500">太さ:</span>
+                            <select id="weightCityBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                <option value="0.5">0.5px</option>
+                                <option value="1" selected>1px</option>
+                                <option value="1.5">1.5px</option>
+                                <option value="2">2px</option>
+                                <option value="2.5">2.5px</option>
+                                <option value="3">3px</option>
+                                <option value="3.5">3.5px</option>
+                                <option value="4">4px</option>
+                                <option value="4.5">4.5px</option>
+                                <option value="5">5px</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <span class="text-slate-500">線種:</span>
+                            <select id="styleCityBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                <option value="solid" selected>実線</option>
+                                <option value="dashed">破線</option>
+                                <option value="dotted">点線</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 政令市行政区境設定 -->
+                <div class="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="flex items-center gap-1.5 font-bold text-slate-700 cursor-pointer select-none">
+                            <input type="checkbox" id="chkWardBoundary" checked class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+                            <span>政令市 行政区境</span>
+                        </label>
+                        <input type="color" id="colorWardBoundary" value="#64748b" class="w-5 h-5 rounded cursor-pointer border border-slate-300">
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 text-[11px]">
+                        <div class="flex items-center gap-1">
+                            <span class="text-slate-500">太さ:</span>
+                            <select id="weightWardBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                <option value="0.5">0.5px</option>
+                                <option value="1" selected>1px</option>
+                                <option value="1.5">1.5px</option>
+                                <option value="2">2px</option>
+                                <option value="2.5">2.5px</option>
+                                <option value="3">3px</option>
+                                <option value="3.5">3.5px</option>
+                                <option value="4">4px</option>
+                                <option value="4.5">4.5px</option>
+                                <option value="5">5px</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <span class="text-slate-500">線種:</span>
+                            <select id="styleWardBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                <option value="solid">実線</option>
+                                <option value="dashed" selected>破線</option>
+                                <option value="dotted">点線</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 塗りつぶし済みリスト（色別タブ/リスト） -->
+            <div class="flex-1 p-4 flex flex-col min-h-[160px]">
+                <div class="flex justify-between items-center mb-2">
+                    <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">塗った市区町村リスト</label>
+                    <span id="coloredBadge" class="text-[10px] bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded">0件</span>
+                </div>
+                <div id="coloredCityList" class="flex-1 overflow-y-auto space-y-1.5 pr-1 text-xs">
+                    <div class="text-slate-400 text-center py-6 text-xs">まだ塗りつぶされた市区町村はありません</div>
+                </div>
+            </div>
+
+            <!-- クレジット -->
+            <div class="p-3 bg-slate-50 border-t border-slate-200 text-[11px] text-slate-400 text-center">
+                出典: 国土交通省「国土数値情報（行政区域データ）」<br>
+                データ加工: smartnews-smri/japan-topography
+            </div>
+        </aside>
+
+        <!-- メインマップ表示エリア -->
+        <main class="flex-1 relative bg-slate-200">
+            <!-- Leaflet マップコンテナ -->
+            <div id="map" class="w-full h-full z-0"></div>
+
+            <!-- ローディングオーバーレイ -->
+            <div id="loadingOverlay" class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm flex flex-col justify-center items-center z-30 transition-opacity duration-300 hidden">
+                <div class="bg-white p-5 rounded-2xl shadow-2xl flex flex-col items-center gap-3 max-w-xs text-center">
+                    <div class="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                    <div>
+                        <h3 class="font-bold text-slate-800 text-sm mb-0.5">データを取得中...</h3>
+                        <p id="loadingText" class="text-xs text-slate-500">GeoJSON境界データを読み込んでいます</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- マウスホバー情報（右上のフローティングカード） -->
+            <div id="hoverCard" class="absolute top-4 right-4 bg-white/95 backdrop-blur-md px-4 py-2.5 rounded-xl shadow-lg border border-slate-100 z-10 pointer-events-none transition-all duration-200 min-w-[180px] hidden">
+                <div class="text-[10px] font-bold text-indigo-600 tracking-wider uppercase mb-0.5" id="hoverPref">東京都</div>
+                <div class="text-sm font-bold text-slate-800" id="hoverCity">新宿区</div>
+                <div class="text-[11px] text-slate-400 mt-0.5 flex justify-between gap-3">
+                    <span>行政コード:</span>
+                    <span id="hoverCode" class="font-mono text-slate-600">13104</span>
+                </div>
+            </div>
+
+            <!-- マップコントロール（再フィットボタン等） -->
+            <div class="absolute bottom-6 right-4 z-10 flex flex-col gap-2">
+                <button id="btnResetView" class="bg-white hover:bg-slate-50 text-slate-700 p-2.5 rounded-xl shadow-md border border-slate-200 transition flex items-center justify-center" title="全体を表示">
+                    <i data-lucide="scan" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <!-- トースト通知コンテナ -->
+    <div id="toastContainer" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- 都道府県複数選択モーダル -->
+    <div id="prefModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex justify-center items-center z-50 p-4 hidden">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
+            <!-- モーダルヘッダー -->
+            <div class="px-5 py-4 bg-slate-900 text-white flex justify-between items-center shrink-0">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="map-pin" class="w-5 h-5 text-indigo-400"></i>
+                    <h3 class="font-bold text-base">表示する都道府県を選択 (複数選択可)</h3>
+                </div>
+                <button id="btnClosePrefModal" class="text-slate-400 hover:text-white p-1 rounded-lg transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- モーダルボディ -->
+            <div class="p-5 overflow-y-auto flex-1 space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">地方で一括選択</label>
+                    <div class="flex flex-wrap gap-1.5" id="regionButtons">
+                        <button type="button" class="region-btn text-xs px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 font-bold border border-indigo-200 hover:bg-indigo-100 transition" data-region="ALL">全国 (全選択)</button>
+                        <button type="button" class="region-btn text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 font-medium border border-slate-200 hover:bg-slate-200 transition" data-region="CLEAR">選択解除</button>
+                        <span class="w-px h-6 bg-slate-200 self-center"></span>
+                        <button type="button" class="region-btn text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 font-medium hover:bg-slate-200 transition" data-region="hokkaido-tohoku">北海道・東北</button>
+                        <button type="button" class="region-btn text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 font-medium hover:bg-slate-200 transition" data-region="kanto">関東</button>
+                        <button type="button" class="region-btn text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 font-medium hover:bg-slate-200 transition" data-region="chubu">中部</button>
+                        <button type="button" class="region-btn text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 font-medium hover:bg-slate-200 transition" data-region="kinki">近畿</button>
+                        <button type="button" class="region-btn text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 font-medium hover:bg-slate-200 transition" data-region="chugoku-shikoku">中国・四国</button>
+                        <button type="button" class="region-btn text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 font-medium hover:bg-slate-200 transition" data-region="kyushu-okinawa">九州・沖縄</button>
+                    </div>
+                </div>
+
+                <hr class="border-slate-100">
+
+                <div id="prefCheckboxGrid" class="space-y-4">
+                    <!-- JSで地域ごとに動的生成 -->
+                </div>
+
+                <hr class="border-slate-100">
+
+                <!-- 島嶼部（離島）表示設定 -->
+                <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                    <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <i data-lucide="anchor" class="w-4 h-4 text-indigo-500"></i>
+                        島嶼部（離島）の表示設定
+                    </label>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                        <label class="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 cursor-pointer hover:bg-indigo-50/50 transition select-none">
+                            <span class="text-slate-700 font-medium">東京都（伊豆・小笠原）</span>
+                            <input type="checkbox" id="modalToggleIsland13" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4">
+                        </label>
+                        <label class="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 cursor-pointer hover:bg-indigo-50/50 transition select-none">
+                            <span class="text-slate-700 font-medium">鹿児島県（奄美・トカラ等）</span>
+                            <input type="checkbox" id="modalToggleIsland46" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4">
+                        </label>
+                        <label class="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 cursor-pointer hover:bg-indigo-50/50 transition select-none">
+                            <span class="text-slate-700 font-medium">沖縄県（宮古・八重山等）</span>
+                            <input type="checkbox" id="modalToggleIsland47" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4">
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- モーダルフッター -->
+            <div class="px-5 py-3 bg-slate-50 border-t border-slate-200 flex justify-between items-center shrink-0">
+                <div class="text-xs text-slate-500 font-medium">
+                    選択中: <span id="modalSelectedCount" class="font-bold text-indigo-600">全国</span>
+                </div>
+                <div class="flex gap-2">
+                    <button id="btnCancelPrefModal" type="button" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200 rounded-lg transition">キャンセル</button>
+                    <button id="btnApplyPrefModal" type="button" class="px-5 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition shadow-md flex items-center gap-1.5">
+                        <i data-lucide="check" class="w-4 h-4"></i>
+                        決定して表示
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript アプリケーションロジック -->
+    <script>
+        // 定数データ定義
+        const REGIONS = [
+            { id: "hokkaido-tohoku", name: "北海道・東北", codes: ["01", "02", "03", "04", "05", "06", "07"] },
+            { id: "kanto", name: "関東", codes: ["08", "09", "10", "11", "12", "13", "14"] },
+            { id: "chubu", name: "中部", codes: ["15", "16", "17", "18", "19", "20", "21", "22", "23"] },
+            { id: "kinki", name: "近畿", codes: ["24", "25", "26", "27", "28", "29", "30"] },
+            { id: "chugoku-shikoku", name: "中国・四国", codes: ["31", "32", "33", "34", "35", "36", "37", "38", "39"] },
+            { id: "kyushu-okinawa", name: "九州・沖縄", codes: ["40", "41", "42", "43", "44", "45", "46", "47"] }
+        ];
+
+        const PREFECTURES = [
+            { code: "01", name: "北海道" }, { code: "02", name: "青森県" }, { code: "03", name: "岩手県" },
+            { code: "04", name: "宮城県" }, { code: "05", name: "秋田県" }, { code: "06", name: "山形県" },
+            { code: "07", name: "福島県" }, { code: "08", name: "茨城県" }, { code: "09", name: "栃木県" },
+            { code: "10", name: "群馬県" }, { code: "11", name: "埼玉県" }, { code: "12", name: "千葉県" },
+            { code: "13", name: "東京都" }, { code: "14", name: "神奈川県" }, { code: "15", name: "新潟県" },
+            { code: "16", name: "富山県" }, { code: "17", name: "石川県" }, { code: "18", name: "福井県" },
+            { code: "19", name: "山梨県" }, { code: "20", name: "長野県" }, { code: "21", name: "岐阜県" },
+            { code: "22", name: "静岡県" }, { code: "23", name: "愛知県" }, { code: "24", name: "三重県" },
+            { code: "25", name: "滋賀県" }, { code: "26", name: "京都府" }, { code: "27", name: "大阪府" },
+            { code: "28", name: "兵庫県" }, { code: "29", name: "奈良県" }, { code: "30", name: "和歌山県" },
+            { code: "31", name: "鳥取県" }, { code: "32", name: "島根県" }, { code: "33", name: "岡山県" },
+            { code: "34", name: "広島県" }, { code: "35", name: "山口県" }, { code: "36", name: "徳島県" },
+            { code: "37", name: "香川県" }, { code: "38", name: "愛媛県" }, { code: "39", name: "高知県" },
+            { code: "40", name: "福岡県" }, { code: "41", name: "佐賀県" }, { code: "42", name: "長崎県" },
+            { code: "43", name: "熊本県" }, { code: "44", name: "大分県" }, { code: "45", name: "宮崎県" },
+            { code: "46", name: "鹿児島県" }, { code: "47", name: "沖縄県" }
+        ];
+
+        const PALETTE_COLORS = [
+            "#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899",
+            "#06b6d4", "#f97316", "#84cc16", "#6366f1", "#14b8a6", "#64748b"
+        ];
+
+        const TILE_LAYERS = {
+            pale: "https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png",
+            std: "https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png"
+        };
+
+        // --- アプリケーション状態 ---
+        let map = null;
+        let currentTileLayer = null;
+        let geojsonLayer = null;
+        let currentGeoJsonData = null;
+        let selectedPrefCodes = ["ALL"]; // 選択中の都道府県コード配列 ["ALL"] または ["13", "14"]
+        let tempSelectedCodes = ["ALL"]; // モーダル内一時保持用
+        let activeTool = "paint";
+        let selectedColor = "#3b82f6";
+        
+        let colorState = {};
+        let currentCityMap = {};
+
+        // 境界線カスタマイズ状態
+        let boundarySettings = {
+            coast: { show: true, color: "#1e293b", weight: 2.0, style: "solid" },
+            pref: { show: true, color: "#0f172a", weight: 2.5, style: "solid" },
+            city: { show: true, color: "#475569", weight: 1.0, style: "solid" },
+            ward: { show: true, color: "#64748b", weight: 1.0, style: "dashed" }
+        };
+        let mapBgColor = "#f1f5f9";
+
+        // 抽出された境界線データ & レイヤー
+        let boundaryGeoJsons = { coast: null, pref: null, city: null, ward: null };
+        let boundaryLayers = { coast: null, pref: null, city: null, ward: null };
+
+        // 島嶼部（離島）表示フラグ
+        let includeIslands = {
+            "13": true, // 東京都
+            "46": true, // 鹿児島県
+            "47": true  // 沖縄県
+        };
+        let tempIncludeIslands = { ...includeIslands }; // モーダル内一時保持用
+
+        // LocalStorage 保存キー
+        const STORAGE_KEY_COLOR_STATE = "japan_map_color_state_v1";
+        const STORAGE_KEY_SELECTED_PREFS = "japan_map_selected_prefs_v1";
+        const STORAGE_KEY_ISLANDS = "japan_map_include_islands_v1";
+        const STORAGE_KEY_BOUNDARIES = "japan_map_boundaries_v1";
+        const STORAGE_KEY_BGCOLOR = "japan_map_bgcolor_v1";
+
+        // --- 初期化処理 ---
+        window.onload = function() {
+            lucide.createIcons();
+            initPwaSupport();
+            initPrefModalUI();
+            initColorPalette();
+            initMap();
+            bindEvents();
+
+            // LocalStorage から前回作業状態を復元
+            loadFromLocalStorage();
+
+            initBoundaryUIValues();
+            updateHeaderPrefButton();
+            loadPrefectureData(selectedPrefCodes);
+        };
+
+        // --- Service Worker 登録 & インストールプロンプト＆自動更新機能 ---
+        let deferredPrompt = null;
+        let isRefreshing = false;
+
+        function initPwaSupport() {
+            if ("serviceWorker" in navigator) {
+                // 自動更新検知ロジック
+                navigator.serviceWorker.register("sw.js").then((registration) => {
+                    registration.addEventListener("updatefound", () => {
+                        const newWorker = registration.installing;
+                        if (!newWorker) return;
+
+                        newWorker.addEventListener("statechange", () => {
+                            if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+                                showToast("アプリが最新バージョンに更新されました！再読み込みします...");
+                                setTimeout(() => {
+                                    window.location.reload();
+                                }, 1500);
+                            }
+                        });
+                    });
+                }).catch(err => {
+                    console.log("Service Worker登録制限 (環境依存):", err);
+                });
+
+                // 新しいService Worker制御開始時のリロード防止（無限ループ制御）
+                navigator.serviceWorker.addEventListener("controllerchange", () => {
+                    if (isRefreshing) return;
+                    isRefreshing = true;
+                    window.location.reload();
+                });
+            }
+
+            // インストールプロンプト制御
+            window.addEventListener("beforeinstallprompt", (e) => {
+                e.preventDefault();
+                deferredPrompt = e;
+                const btnInstall = document.getElementById("btnInstallPwa");
+                if (btnInstall) {
+                    btnInstall.classList.remove("hidden");
+                }
+            });
+
+            document.getElementById("btnInstallPwa")?.addEventListener("click", async () => {
+                if (!deferredPrompt) return;
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === "accepted") {
+                    showToast("アプリがホーム画面に追加されました！");
+                }
+                deferredPrompt = null;
+                document.getElementById("btnInstallPwa").classList.add("hidden");
+            });
+        }
+
+        // 都道府県・全国GeoJSONデータの非同期読み込み処理
+        async function loadPrefectureData(codes) {
+            showLoading(true, "GeoJSON境界データを読み込んでいます...");
+            try {
+                let features = [];
+                const isAll = codes.includes("ALL") || codes.length === 47;
+
+                if (isAll) {
+                    const res = await fetch("https://raw.githubusercontent.com/smartnews-smri/japan-topography/main/data/municipality/geojson/s0010/N03-21_210101.json");
+                    if (!res.ok) throw new Error("全国データの取得に失敗しました");
+                    const data = await res.json();
+                    features = data.features || [];
+                } else {
+                    const promises = codes.map(async (code) => {
+                        const res = await fetch(`https://raw.githubusercontent.com/smartnews-smri/japan-topography/main/data/municipality/geojson/s0010/N03-21_${code}_210101.json`);
+                        if (!res.ok) throw new Error(`都道府県データ(${code})の取得に失敗しました`);
+                        return res.json();
+                    });
+                    const results = await Promise.all(promises);
+                    results.forEach(d => {
+                        if (d && d.features) features.push(...d.features);
+                    });
+                }
+
+                currentGeoJsonData = {
+                    type: "FeatureCollection",
+                    features: features
+                };
+
+                renderGeoJson(currentGeoJsonData);
+                updateUIStats();
+                showLoading(false);
+            } catch (err) {
+                console.error("データ取得エラー:", err);
+                showLoading(false);
+                showToast("境界データの取得に失敗しました。時間をおいて再試行してください。", "error");
+            }
+        }
+
+        // LocalStorage への保存・復元関数
+        function saveToLocalStorage() {
+            try {
+                localStorage.setItem(STORAGE_KEY_COLOR_STATE, JSON.stringify(colorState));
+                localStorage.setItem(STORAGE_KEY_SELECTED_PREFS, JSON.stringify(selectedPrefCodes));
+                localStorage.setItem(STORAGE_KEY_ISLANDS, JSON.stringify(includeIslands));
+                localStorage.setItem(STORAGE_KEY_BOUNDARIES, JSON.stringify(boundarySettings));
+                localStorage.setItem(STORAGE_KEY_BGCOLOR, mapBgColor);
+            } catch (e) {
+                console.warn("LocalStorage への保存に失敗しました:", e);
+            }
+        }
+
+        function loadFromLocalStorage() {
+            try {
+                const savedState = localStorage.getItem(STORAGE_KEY_COLOR_STATE);
+                const savedPrefs = localStorage.getItem(STORAGE_KEY_SELECTED_PREFS);
+                const savedIslands = localStorage.getItem(STORAGE_KEY_ISLANDS);
+                const savedBoundaries = localStorage.getItem(STORAGE_KEY_BOUNDARIES);
+                const savedBgColor = localStorage.getItem(STORAGE_KEY_BGCOLOR);
+
+                if (savedState) {
+                    colorState = JSON.parse(savedState) || {};
+                }
+                if (savedPrefs) {
+                    selectedPrefCodes = JSON.parse(savedPrefs) || ["ALL"];
+                }
+                if (savedIslands) {
+                    includeIslands = { ...includeIslands, ...JSON.parse(savedIslands) };
+                }
+                if (savedBoundaries) {
+                    boundarySettings = { ...boundarySettings, ...JSON.parse(savedBoundaries) };
+                }
+                if (savedBgColor) {
+                    mapBgColor = savedBgColor;
+                }
+            } catch (e) {
+                console.warn("LocalStorage からの読み込みに失敗しました:", e);
+            }
+        }
+
+        function initBoundaryUIValues() {
+            // 背景色適用
+            document.getElementById("bgColorPicker").value = mapBgColor;
+            applyMapBgColor(mapBgColor);
+
+            // 海岸線
+            document.getElementById("chkCoastBoundary").checked = boundarySettings.coast.show;
+            document.getElementById("colorCoastBoundary").value = boundarySettings.coast.color;
+            document.getElementById("weightCoastBoundary").value = boundarySettings.coast.weight;
+            document.getElementById("styleCoastBoundary").value = boundarySettings.coast.style;
+
+            // 県境
+            document.getElementById("chkPrefBoundary").checked = boundarySettings.pref.show;
+            document.getElementById("colorPrefBoundary").value = boundarySettings.pref.color;
+            document.getElementById("weightPrefBoundary").value = boundarySettings.pref.weight;
+            document.getElementById("stylePrefBoundary").value = boundarySettings.pref.style;
+
+            // 市境
+            document.getElementById("chkCityBoundary").checked = boundarySettings.city.show;
+            document.getElementById("colorCityBoundary").value = boundarySettings.city.color;
+            document.getElementById("weightCityBoundary").value = boundarySettings.city.weight;
+            document.getElementById("styleCityBoundary").value = boundarySettings.city.style;
+
+            // 政令市区境
+            document.getElementById("chkWardBoundary").checked = boundarySettings.ward.show;
+            document.getElementById("colorWardBoundary").value = boundarySettings.ward.color;
+            document.getElementById("weightWardBoundary").value = boundarySettings.ward.weight;
+            document.getElementById("styleWardBoundary").value = boundarySettings.ward.style;
+        }
+
+        function applyMapBgColor(color) {
+            mapBgColor = color;
+            const mapContainer = document.getElementById("map");
+            if (mapContainer) mapContainer.style.backgroundColor = color;
+        }
+
+        // 島嶼部（離島）判定ロジック
+        function isIslandMunicipality(code, props = null) {
+            const strCode = String(code).trim();
+            const numCode = parseInt(strCode, 10);
+
+            let propText = "";
+            if (props) {
+                propText = Object.values(props).map(v => (v !== null && v !== undefined) ? String(v) : "").join(" ");
+            }
+
+            const isTokyo = strCode.startsWith("13") || propText.includes("東京都");
+
+            if (isTokyo) {
+                if (propText.includes("支庁")) {
+                    return "13";
+                }
+
+                if (!isNaN(numCode) && numCode >= 13361 && numCode <= 13421) {
+                    return "13";
+                }
+
+                const islandKeywords = ["大島", "利島", "新島", "神津島", "三宅", "御蔵島", "八丈", "青ヶ島", "小笠原", "父島", "母島", "硫黄島", "鳥島"];
+                if (islandKeywords.some(k => propText.includes(k))) {
+                    return "13";
+                }
+
+                const isUnassigned = propText.includes("未定") || propText.includes("地先") || propText.includes("水面") || strCode === "13000" || strCode === "13100" || strCode === "13300" || strCode === "00000";
+
+                if (isUnassigned) {
+                    const bayWards = ["中央区", "港区", "江東区", "品川区", "大田区", "江戸川区", "東京港", "東京湾"];
+                    const isBayArea = bayWards.some(w => propText.includes(w));
+
+                    if (isBayArea) {
+                        return null;
+                    } else {
+                        return "13";
+                    }
+                }
+
+                if (["13303", "13305", "13307", "13308"].includes(strCode)) {
+                    return null;
+                }
+
+                const is23Ku = !isNaN(numCode) && numCode >= 13101 && numCode <= 13123;
+                const isCity = !isNaN(numCode) && numCode >= 13201 && numCode <= 13229;
+                if (is23Ku || isCity) {
+                    return null;
+                }
+
+                return "13";
+            }
+
+            if (strCode === "46213" || strCode === "46222" || 
+                strCode === "46303" || strCode === "46304" || 
+                (!isNaN(numCode) && numCode >= 46500 && numCode <= 46599) ||
+                (props && (propText.includes("奄美") || propText.includes("大島郡") || propText.includes("熊毛郡") || propText.includes("屋久島") || propText.includes("種子島")))) {
+                return "46";
+            }
+
+            const okinawaIslands = [
+                "47207", "47214", "47315", "47353", "47354", "47355", 
+                "47356", "47357", "47358", "47359", "47360", "47361", 
+                "47375", "47381", "47382"
+            ];
+            if (okinawaIslands.includes(strCode) || 
+                (props && (propText.includes("宮古") || propText.includes("八重山") || propText.includes("石垣") || propText.includes("久米島") || propText.includes("渡嘉敷") || propText.includes("座間味") || propText.includes("粟国") || propText.includes("渡名喜") || propText.includes("南大東") || propText.includes("北大東") || propText.includes("伊平屋") || propText.includes("伊江") || propText.includes("竹富") || propText.includes("与那国")))) {
+                return "47";
+            }
+
+            return null;
+        }
+
+        // 都道府県モーダルUI初期化
+        function initPrefModalUI() {
+            const gridEl = document.getElementById("prefCheckboxGrid");
+            gridEl.innerHTML = REGIONS.map(region => {
+                const prefCheckboxes = region.codes.map(code => {
+                    const pref = PREFECTURES.find(p => p.code === code);
+                    return `
+                        <label class="flex items-center gap-1.5 p-1.5 rounded-md hover:bg-slate-100 cursor-pointer text-xs font-medium text-slate-700 transition select-none">
+                            <input type="checkbox" value="${code}" class="pref-checkbox rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4">
+                            <span>${pref.name}</span>
+                        </label>
+                    `;
+                }).join("");
+
+                return `
+                    <div>
+                        <div class="flex items-center justify-between border-b border-slate-200 pb-1 mb-2">
+                            <span class="text-xs font-bold text-slate-800">${region.name}</span>
+                            <button type="button" class="region-select-toggle text-[11px] text-indigo-600 hover:underline font-semibold" data-region-id="${region.id}">この地方を選択</button>
+                        </div>
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-1">
+                            ${prefCheckboxes}
+                        </div>
+                    </div>
+                `;
+            }).join("");
+
+            gridEl.querySelectorAll(".pref-checkbox").forEach(chk => {
+                chk.addEventListener("change", () => {
+                    updateTempSelectedFromCheckboxes();
+                });
+            });
+
+            gridEl.querySelectorAll(".region-select-toggle").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    const regionId = btn.getAttribute("data-region-id");
+                    const region = REGIONS.find(r => r.id === regionId);
+                    if (region) {
+                        const allSelected = region.codes.every(c => tempSelectedCodes.includes(c));
+                        if (allSelected) {
+                            tempSelectedCodes = tempSelectedCodes.filter(c => !region.codes.includes(c));
+                        } else {
+                            region.codes.forEach(c => {
+                                if (!tempSelectedCodes.includes(c)) tempSelectedCodes.push(c);
+                            });
+                            tempSelectedCodes = tempSelectedCodes.filter(c => c !== "ALL");
+                        }
+                        syncCheckboxesFromTemp();
+                    }
+                });
+            });
+
+            document.querySelectorAll("#regionButtons .region-btn").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    const reg = btn.getAttribute("data-region");
+                    if (reg === "ALL") {
+                        tempSelectedCodes = ["ALL"];
+                    } else if (reg === "CLEAR") {
+                        tempSelectedCodes = [];
+                    } else {
+                        const region = REGIONS.find(r => r.id === reg);
+                        if (region) {
+                            tempSelectedCodes = [...region.codes];
+                        }
+                    }
+                    syncCheckboxesFromTemp();
+                });
+            });
+
+            document.getElementById("modalToggleIsland13").addEventListener("change", (e) => {
+                tempIncludeIslands["13"] = e.target.checked;
+            });
+            document.getElementById("modalToggleIsland46").addEventListener("change", (e) => {
+                tempIncludeIslands["46"] = e.target.checked;
+            });
+            document.getElementById("modalToggleIsland47").addEventListener("change", (e) => {
+                tempIncludeIslands["47"] = e.target.checked;
+            });
+
+            document.getElementById("btnOpenPrefModal").addEventListener("click", openPrefModal);
+            document.getElementById("btnClosePrefModal").addEventListener("click", closePrefModal);
+            document.getElementById("btnCancelPrefModal").addEventListener("click", closePrefModal);
+            
+            document.getElementById("btnApplyPrefModal").addEventListener("click", () => {
+                selectedPrefCodes = [...tempSelectedCodes];
+                if (selectedPrefCodes.length === 0) selectedPrefCodes = ["ALL"];
+                includeIslands = { ...tempIncludeIslands };
+                closePrefModal();
+                updateHeaderPrefButton();
+                saveToLocalStorage();
+                loadPrefectureData(selectedPrefCodes);
+            });
+        }
+
+        function openPrefModal() {
+            tempSelectedCodes = [...selectedPrefCodes];
+            tempIncludeIslands = { ...includeIslands };
+            syncCheckboxesFromTemp();
+            syncModalIslandTogglesFromTemp();
+            document.getElementById("prefModal").classList.remove("hidden");
+            lucide.createIcons();
+        }
+
+        function syncModalIslandTogglesFromTemp() {
+            document.getElementById("modalToggleIsland13").checked = tempIncludeIslands["13"];
+            document.getElementById("modalToggleIsland46").checked = tempIncludeIslands["46"];
+            document.getElementById("modalToggleIsland47").checked = tempIncludeIslands["47"];
+        }
+
+        function closePrefModal() {
+            document.getElementById("prefModal").classList.add("hidden");
+        }
+
+        function updateTempSelectedFromCheckboxes() {
+            const checked = Array.from(document.querySelectorAll(".pref-checkbox:checked")).map(cb => cb.value);
+            if (checked.length === 47 || checked.length === 0) {
+                tempSelectedCodes = ["ALL"];
+            } else {
+                tempSelectedCodes = checked;
+            }
+            updateModalFooterCount();
+        }
+
+        function syncCheckboxesFromTemp() {
+            const isAll = tempSelectedCodes.includes("ALL") || tempSelectedCodes.length === 47;
+            document.querySelectorAll(".pref-checkbox").forEach(cb => {
+                cb.checked = isAll || tempSelectedCodes.includes(cb.value);
+            });
+            updateModalFooterCount();
+        }
+
+        function updateModalFooterCount() {
+            const isAll = tempSelectedCodes.includes("ALL") || tempSelectedCodes.length === 47;
+            const countEl = document.getElementById("modalSelectedCount");
+            if (isAll) {
+                countEl.textContent = "全国（すべての都道府県）";
+            } else if (tempSelectedCodes.length === 0) {
+                countEl.textContent = "未選択（全国を表示）";
+            } else {
+                countEl.textContent = `${getSelectedPrefLabel(tempSelectedCodes)} (${tempSelectedCodes.length}都道府県)`;
+            }
+        }
+
+        function updateHeaderPrefButton() {
+            const labelEl = document.getElementById("selectedPrefLabel");
+            const badgeEl = document.getElementById("selectedPrefBadge");
+            const label = getSelectedPrefLabel(selectedPrefCodes);
+            labelEl.textContent = label;
+
+            if (selectedPrefCodes.includes("ALL") || selectedPrefCodes.length === 47) {
+                badgeEl.classList.add("hidden");
+            } else {
+                badgeEl.textContent = selectedPrefCodes.length;
+                badgeEl.classList.remove("hidden");
+            }
+        }
+
+        function getSelectedPrefLabel(codes) {
+            if (!codes || codes.includes("ALL") || codes.length === 47 || codes.length === 0) {
+                return "全国（日本全体）";
+            }
+            if (codes.length === 1) {
+                return getPrefName(codes[0]);
+            }
+            const names = codes.map(c => getPrefName(c));
+            if (codes.length <= 2) {
+                return names.join("・");
+            }
+            return `${names[0]}・${names[1]} 外${codes.length - 2}県`;
+        }
+
+        function initColorPalette() {
+            const paletteEl = document.getElementById("colorPalette");
+            paletteEl.innerHTML = PALETTE_COLORS.map((color) => `
+                <button type="button" data-color="${color}" class="color-swatch w-7 h-7 rounded-full border border-slate-300 shadow-sm transition hover:scale-110 flex items-center justify-center ${color === selectedColor ? 'ring-2 ring-indigo-600 ring-offset-2' : ''}" style="background-color: ${color}">
+                </button>
+            `).join("");
+
+            paletteEl.querySelectorAll(".color-swatch").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    setColor(btn.getAttribute("data-color"));
+                });
+            });
+
+            document.getElementById("customColorPicker").addEventListener("input", (e) => {
+                setColor(e.target.value);
+            });
+        }
+
+        function setColor(color) {
+            selectedColor = color;
+            document.getElementById("customColorPicker").value = color;
+            
+            document.querySelectorAll(".color-swatch").forEach(btn => {
+                if (btn.getAttribute("data-color") === color) {
+                    btn.classList.add("ring-2", "ring-indigo-600", "ring-offset-2");
+                } else {
+                    btn.classList.remove("ring-2", "ring-indigo-600", "ring-offset-2");
+                }
+            });
+
+            setToolMode("paint");
+        }
+
+        function setToolMode(mode) {
+            activeTool = mode;
+            const btnPaint = document.getElementById("btnPaintMode");
+            const btnEraser = document.getElementById("btnEraserMode");
+
+            if (mode === "paint") {
+                btnPaint.className = "flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg border border-indigo-600 bg-indigo-50 text-indigo-700 transition shadow-sm";
+                btnEraser.className = "flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition";
+            } else {
+                btnEraser.className = "flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg border border-rose-600 bg-rose-50 text-rose-700 transition shadow-sm";
+                btnPaint.className = "flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition";
+            }
+        }
+
+        function initMap() {
+            map = L.map("map", {
+                zoomControl: false,
+                attributionControl: false,
+                preferCanvas: true
+            }).setView([36.5, 137.5], 5);
+
+            L.control.zoom({ position: "bottomright" }).addTo(map);
+
+            currentTileLayer = L.tileLayer(TILE_LAYERS.pale, {
+                maxZoom: 18,
+                crossOrigin: true,
+                attribution: '&copy; <a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a>'
+            }).addTo(map);
+        }
+
+        function bindEvents() {
+            document.getElementById("btnPaintMode").addEventListener("click", () => setToolMode("paint"));
+            document.getElementById("btnEraserMode").addEventListener("click", () => setToolMode("eraser"));
+
+            document.getElementById("btnFillAll").addEventListener("click", fillAllCurrentPref);
+            document.getElementById("btnClearAll").addEventListener("click", clearAllCurrentPref);
+
+            document.getElementById("btnResetView").addEventListener("click", fitToCurrentBounds);
+
+            document.getElementById("btnExportJson").addEventListener("click", exportStateJson);
+            document.getElementById("btnImportJson").addEventListener("change", importStateJson);
+            document.getElementById("btnExportPng").addEventListener("click", exportMapImage);
+            document.getElementById("btnExportSvg").addEventListener("click", exportMapSvg);
+
+            document.getElementById("bgColorPicker").addEventListener("input", (e) => {
+                applyMapBgColor(e.target.value);
+                saveToLocalStorage();
+            });
+
+            const boundaryUIKeys = [
+                { type: "coast", chk: "chkCoastBoundary", color: "colorCoastBoundary", weight: "weightCoastBoundary", style: "styleCoastBoundary" },
+                { type: "pref", chk: "chkPrefBoundary", color: "colorPrefBoundary", weight: "weightPrefBoundary", style: "stylePrefBoundary" },
+                { type: "city", chk: "chkCityBoundary", color: "colorCityBoundary", weight: "weightCityBoundary", style: "styleCityBoundary" },
+                { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", weight: "weightWardBoundary", style: "styleWardBoundary" }
+            ];
+
+            boundaryUIKeys.forEach(item => {
+                const updateBoundarySetting = () => {
+                    boundarySettings[item.type] = {
+                        show: document.getElementById(item.chk).checked,
+                        color: document.getElementById(item.color).value,
+                        weight: parseFloat(document.getElementById(item.weight).value),
+                        style: document.getElementById(item.style).value
+                    };
+                    renderBoundaryLayers();
+                    saveToLocalStorage();
+                };
+
+                document.getElementById(item.chk).addEventListener("change", updateBoundarySetting);
+                document.getElementById(item.color).addEventListener("input", updateBoundarySetting);
+                document.getElementById(item.weight).addEventListener("change", updateBoundarySetting);
+                document.getElementById(item.style).addEventListener("change", updateBoundarySetting);
+            });
+
+            document.querySelectorAll(".tile-btn").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    const tileType = btn.getAttribute("data-tile");
+                    document.querySelectorAll(".tile-btn").forEach(b => {
+                        b.classList.remove("bg-white", "text-indigo-600", "shadow-sm");
+                        b.classList.add("text-slate-600");
+                    });
+                    btn.classList.add("bg-white", "text-indigo-600", "shadow-sm");
+                    btn.classList.remove("text-slate-600");
+
+                    if (currentTileLayer) map.removeLayer(currentTileLayer);
+                    if (tileType !== "none") {
+                        currentTileLayer = L.tileLayer(TILE_LAYERS[tileType], {
+                            maxZoom: 18,
+                            crossOrigin: true,
+                            attribution: '&copy; 国土地理院'
+                        }).addTo(map);
+                    }
+                });
+            });
+        }
+
+        function renderGeoJson(data) {
+            if (geojsonLayer) {
+                map.removeLayer(geojsonLayer);
+            }
+
+            currentCityMap = {};
+
+            const filteredFeatures = data.features.filter(feature => {
+                const code = getCityCode(feature.properties);
+                const islandPrefCode = isIslandMunicipality(code, feature.properties);
+                if (islandPrefCode && includeIslands[islandPrefCode] === false) {
+                    return false;
+                }
+                return true;
+            });
+
+            const filteredGeoJson = {
+                type: "FeatureCollection",
+                features: filteredFeatures
+            };
+
+            extractBoundaries(filteredGeoJson);
+
+            geojsonLayer = L.geoJSON(filteredGeoJson, {
+                style: featureStyle,
+                onEachFeature: (feature, layer) => {
+                    const props = feature.properties;
+                    const code = getCityCode(props);
+                    const name = getCityName(props);
+                    const prefCode = props.N03_007 ? props.N03_007.substring(0, 2) : "";
+                    const prefName = props.N03_001 || getPrefName(prefCode) || "都道府県";
+
+                    currentCityMap[code] = { name, prefCode, prefName };
+
+                    layer.on({
+                        mouseover: (e) => {
+                            const l = e.target;
+                            l.setStyle({ fillOpacity: 0.85 });
+                            showHoverCard(true, prefName, name, code);
+                        },
+                        mouseout: (e) => {
+                            geojsonLayer.resetStyle(e.target);
+                            showHoverCard(false);
+                        },
+                        click: () => {
+                            handleCityClick(code);
+                        }
+                    });
+                }
+            }).addTo(map);
+
+            renderBoundaryLayers();
+            fitToCurrentBounds();
+        }
+
+        function extractBoundaries(geoJson) {
+            const edgeMap = new Map();
+
+            function getFeatureMeta(props) {
+                const prefCode = props.N03_007 ? String(props.N03_007).substring(0, 2) : (props.N03_001 || "");
+                const cityCode = getCityCode(props);
+                const isWard = Boolean(props.N03_005) || (props.N03_004 && props.N03_004.endsWith("区") && props.N03_003 && props.N03_003.endsWith("市"));
+                const seireiName = isWard ? (props.N03_003 || "") : null;
+                return { prefCode, cityCode, seireiName };
+            }
+
+            function addRing(ring, meta) {
+                for (let i = 0; i < ring.length - 1; i++) {
+                    const p1 = ring[i];
+                    const p2 = ring[i + 1];
+                    const k1 = `${p1[0].toFixed(5)},${p1[1].toFixed(5)}`;
+                    const k2 = `${p2[0].toFixed(5)},${p2[1].toFixed(5)}`;
+                    const key = k1 < k2 ? `${k1}_${k2}` : `${k2}_${k1}`;
+
+                    if (!edgeMap.has(key)) {
+                        edgeMap.set(key, { p1, p2, f1: meta, f2: null });
+                    } else {
+                        edgeMap.get(key).f2 = meta;
+                    }
+                }
+            }
+
+            geoJson.features.forEach(feature => {
+                const meta = getFeatureMeta(feature.properties);
+                const geom = feature.geometry;
+                if (!geom) return;
+
+                if (geom.type === "Polygon") {
+                    geom.coordinates.forEach(ring => addRing(ring, meta));
+                } else if (geom.type === "MultiPolygon") {
+                    geom.coordinates.forEach(poly => poly.forEach(ring => addRing(ring, meta)));
+                }
+            });
+
+            const coastLines = [];
+            const prefLines = [];
+            const cityLines = [];
+            const wardLines = [];
+
+            edgeMap.forEach(({ p1, p2, f1, f2 }) => {
+                if (!f2) {
+                    coastLines.push([p1, p2]);
+                    return;
+                }
+
+                if (f1.prefCode !== f2.prefCode) {
+                    prefLines.push([p1, p2]);
+                } else if (f1.cityCode !== f2.cityCode) {
+                    if (f1.seireiName && f2.seireiName && f1.seireiName === f2.seireiName) {
+                        wardLines.push([p1, p2]);
+                    } else {
+                        cityLines.push([p1, p2]);
+                    }
+                }
+            });
+
+            boundaryGeoJsons = {
+                coast: { type: "Feature", geometry: { type: "MultiLineString", coordinates: coastLines } },
+                pref: { type: "Feature", geometry: { type: "MultiLineString", coordinates: prefLines } },
+                city: { type: "Feature", geometry: { type: "MultiLineString", coordinates: cityLines } },
+                ward: { type: "Feature", geometry: { type: "MultiLineString", coordinates: wardLines } }
+            };
+        }
+
+        function renderBoundaryLayers() {
+            ["ward", "city", "pref", "coast"].forEach(type => {
+                if (boundaryLayers[type]) {
+                    map.removeLayer(boundaryLayers[type]);
+                    boundaryLayers[type] = null;
+                }
+
+                const setting = boundarySettings[type];
+                const geojson = boundaryGeoJsons[type];
+
+                if (setting.show && geojson && geojson.geometry.coordinates.length > 0) {
+                    let dashArray = null;
+                    if (setting.style === "dashed") dashArray = "6, 4";
+                    else if (setting.style === "dotted") dashArray = "2, 3";
+
+                    boundaryLayers[type] = L.geoJSON(geojson, {
+                        style: {
+                            color: setting.color,
+                            weight: setting.weight,
+                            dashArray: dashArray,
+                            opacity: 0.9,
+                            interactive: false
+                        }
+                    }).addTo(map);
+
+                    if (boundaryLayers[type].bringToFront) {
+                        boundaryLayers[type].bringToFront();
+                    }
+                }
+            });
+        }
+
+        function featureStyle(feature) {
+            const code = getCityCode(feature.properties);
+            const colored = colorState[code];
+
+            if (colored) {
+                return {
+                    fillColor: colored,
+                    fillOpacity: 0.75,
+                    color: "transparent",
+                    weight: 0,
+                    opacity: 0
+                };
+            } else {
+                return {
+                    fillColor: "#ffffff",
+                    fillOpacity: 0.45,
+                    color: "transparent",
+                    weight: 0,
+                    opacity: 0
+                };
+            }
+        }
+
+        function handleCityClick(code) {
+            if (activeTool === "paint") {
+                colorState[code] = selectedColor;
+            } else {
+                delete colorState[code];
+            }
+
+            geojsonLayer.eachLayer(layer => {
+                if (getCityCode(layer.feature.properties) === code) {
+                    layer.setStyle(featureStyle(layer.feature));
+                }
+            });
+
+            saveToLocalStorage();
+            updateUIStats();
+        }
+
+        function fillAllCurrentPref() {
+            Object.keys(currentCityMap).forEach(code => {
+                colorState[code] = selectedColor;
+            });
+            refreshLayerStyles();
+            saveToLocalStorage();
+            updateUIStats();
+            showToast(`${getSelectedPrefLabel(selectedPrefCodes)}を表示エリア全塗りしました`);
+        }
+
+        function clearAllCurrentPref() {
+            Object.keys(currentCityMap).forEach(code => {
+                delete colorState[code];
+            });
+            refreshLayerStyles();
+            saveToLocalStorage();
+            updateUIStats();
+            showToast(`${getSelectedPrefLabel(selectedPrefCodes)}の色塗りをクリアしました`);
+        }
+
+        function refreshLayerStyles() {
+            if (!geojsonLayer) return;
+            geojsonLayer.eachLayer(layer => {
+                layer.setStyle(featureStyle(layer.feature));
+            });
+        }
+
+        function fitToCurrentBounds() {
+            if (geojsonLayer && map) {
+                map.fitBounds(geojsonLayer.getBounds(), { padding: [30, 30] });
+            }
+        }
+
+        function updateUIStats() {
+            const prefName = getSelectedPrefLabel(selectedPrefCodes);
+            document.getElementById("currentPrefName").textContent = prefName;
+
+            const allCodes = Object.keys(currentCityMap);
+            const total = allCodes.length;
+            const coloredCodes = allCodes.filter(code => colorState[code]);
+            const count = coloredCodes.length;
+            const percent = total > 0 ? Math.round((count / total) * 100) : 0;
+
+            document.getElementById("coloredCount").textContent = count;
+            document.getElementById("totalCount").textContent = total;
+            document.getElementById("progressPercent").textContent = `${percent}%`;
+            document.getElementById("progressBar").style.width = `${percent}%`;
+            document.getElementById("coloredBadge").textContent = `${count}件`;
+
+            const listEl = document.getElementById("coloredCityList");
+            if (count === 0) {
+                listEl.innerHTML = `<div class="text-slate-400 text-center py-6 text-xs">まだ塗りつぶされた市区町村はありません</div>`;
+                return;
+            }
+
+            const isMultiOrNational = selectedPrefCodes.includes("ALL") || selectedPrefCodes.length > 1;
+
+            listEl.innerHTML = coloredCodes.map(code => {
+                const city = currentCityMap[code];
+                const color = colorState[code];
+                return `
+                    <div class="flex items-center justify-between p-2 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-200 transition">
+                        <div class="flex items-center gap-2 overflow-hidden">
+                            <span class="w-3.5 h-3.5 rounded-full border border-slate-300 shadow-xs shrink-0" style="background-color: ${color}"></span>
+                            <span class="font-medium text-slate-700 truncate">
+                                ${isMultiOrNational && city.prefName ? `<span class="text-slate-400 text-[10px] mr-1">[${city.prefName}]</span>` : ''}${city.name}
+                            </span>
+                        </div>
+                        <button onclick="handleCityClick('${code}')" class="text-slate-400 hover:text-rose-500 p-1 transition shrink-0" title="消去">
+                            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+                `;
+            }).join("");
+
+            lucide.createIcons();
+        }
+
+        function getCityName(props) {
+            if (!props) return "不明";
+            const county = props.N03_003 ? props.N03_003 : "";
+            const city = props.N03_004 ? props.N03_004 : (props.N03_001 || "");
+            return county ? `${county}${city}` : city;
+        }
+
+        function getCityCode(props) {
+            if (!props) return "00000";
+            const code = props.N03_007 || props.N03_004 || "00000";
+            return String(code).trim();
+        }
+
+        function getPrefName(code) {
+            if (code === "ALL") return "全国（日本全体）";
+            const pref = PREFECTURES.find(p => p.code === code);
+            return pref ? pref.name : "";
+        }
+
+        function showHoverCard(show, prefName = "", cityName = "", code = "") {
+            const card = document.getElementById("hoverCard");
+            if (show) {
+                document.getElementById("hoverPref").textContent = prefName;
+                document.getElementById("hoverCity").textContent = cityName;
+                document.getElementById("hoverCode").textContent = code;
+                card.classList.remove("hidden");
+            } else {
+                card.classList.add("hidden");
+            }
+        }
+
+        function showLoading(show, text = "") {
+            const overlay = document.getElementById("loadingOverlay");
+            if (show) {
+                document.getElementById("loadingText").textContent = text;
+                overlay.classList.remove("hidden");
+            } else {
+                overlay.classList.add("hidden");
+            }
+        }
+
+        function showToast(message, type = "info") {
+            const container = document.getElementById("toastContainer");
+            const toast = document.createElement("div");
+            toast.className = `px-4 py-2.5 rounded-xl shadow-lg text-xs font-semibold flex items-center gap-2 pointer-events-auto transition-all transform duration-300 translate-y-2 opacity-0 ${
+                type === 'error' ? 'bg-rose-600 text-white' : 'bg-slate-900 text-white'
+            }`;
+            toast.innerHTML = `
+                <i data-lucide="${type === 'error' ? 'alert-circle' : 'check-circle-2'}" class="w-4 h-4 text-emerald-400"></i>
+                <span>${message}</span>
+            `;
+            container.appendChild(toast);
+            lucide.createIcons();
+
+            setTimeout(() => {
+                toast.classList.remove("translate-y-2", "opacity-0");
+            }, 10);
+
+            setTimeout(() => {
+                toast.classList.add("opacity-0", "translate-y-2");
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function exportStateJson() {
+            const exportData = {
+                version: "1.0",
+                exportedAt: new Date().toISOString(),
+                colorState: colorState
+            };
+            const jsonStr = JSON.stringify(exportData, null, 2);
+            const blob = new Blob([jsonStr], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `japan_map_color_${new Date().toISOString().slice(0,10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+
+            showToast("塗り状態をJSONファイルに保存しました");
+        }
+
+        function importStateJson(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const data = JSON.parse(event.target.result);
+                    if (data && data.colorState) {
+                        colorState = { ...colorState, ...data.colorState };
+                        refreshLayerStyles();
+                        saveToLocalStorage();
+                        updateUIStats();
+                        showToast("JSONから塗り状態を復元しました");
+                    } else {
+                        throw new Error("無効なJSONデータ構造です");
+                    }
+                } catch (err) {
+                    showToast("ファイルの読み込みに失敗しました", "error");
+                }
+            };
+            reader.readAsText(file);
+            e.target.value = "";
+        }
+
+        function exportMapImage() {
+            showLoading(true, "高解像度画像を生成中...");
+
+            if (!map || !geojsonLayer) {
+                showLoading(false);
+                return;
+            }
+
+            map.invalidateSize();
+
+            const bounds = geojsonLayer.getBounds();
+            if (bounds.isValid()) {
+                map.fitBounds(bounds, { padding: [50, 50], animate: false });
+            }
+
+            setTimeout(() => {
+                leafletImage(map, function(err, canvas) {
+                    if (err || !canvas) {
+                        console.error("leafletImage error:", err);
+                        const mapContainer = document.getElementById("map");
+                        html2canvas(mapContainer, {
+                            useCORS: true,
+                            allowTaint: true,
+                            logging: false
+                        }).then(fallbackCanvas => {
+                            saveCanvasAsImage(fallbackCanvas);
+                        }).catch(e => {
+                            showLoading(false);
+                            showToast("画像の生成に失敗しました", "error");
+                        });
+                        return;
+                    }
+
+                    saveCanvasAsImage(canvas);
+                });
+            }, 300);
+        }
+
+        function saveCanvasAsImage(canvas) {
+            try {
+                const margin = 40;
+                const finalCanvas = document.createElement("canvas");
+                finalCanvas.width = canvas.width + margin * 2;
+                finalCanvas.height = canvas.height + margin * 2;
+                const ctx = finalCanvas.getContext("2d");
+
+                ctx.fillStyle = mapBgColor;
+                ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+                
+                ctx.drawImage(canvas, margin, margin);
+
+                const link = document.createElement("a");
+                const labelName = getSelectedPrefLabel(selectedPrefCodes);
+                link.download = `japan_map_${labelName}_${new Date().toISOString().slice(0,10)}.png`;
+                link.href = finalCanvas.toDataURL("image/png");
+                link.click();
+                showLoading(false);
+                showToast("地図をPNG画像として保存しました");
+            } catch (err) {
+                console.error(err);
+                showLoading(false);
+                showToast("画像の保存処理に失敗しました", "error");
+            }
+        }
+
+        function exportMapSvg() {
+            if (!currentGeoJsonData || !currentGeoJsonData.features) {
+                showToast("データが読み込まれていません", "error");
+                return;
+            }
+
+            showLoading(true, "SVGベクター画像を生成中...");
+
+            setTimeout(() => {
+                try {
+                    const exportFeatures = currentGeoJsonData.features.filter(feature => {
+                        const code = getCityCode(feature.properties);
+                        const islandPrefCode = isIslandMunicipality(code, feature.properties);
+                        if (islandPrefCode && includeIslands[islandPrefCode] === false) {
+                            return false;
+                        }
+                        return true;
+                    });
+
+                    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+
+                    function processCoords(coords) {
+                        if (typeof coords[0] === 'number') {
+                            const [lon, lat] = coords;
+                            const [mx, my] = geoToMercator(lon, lat);
+                            if (mx < minX) minX = mx;
+                            if (mx > maxX) maxX = mx;
+                            if (my < minY) minY = my;
+                            if (my > maxY) maxY = my;
+                        } else {
+                            coords.forEach(processCoords);
+                        }
+                    }
+
+                    exportFeatures.forEach(f => {
+                        if (f.geometry && f.geometry.coordinates) {
+                            processCoords(f.geometry.coordinates);
+                        }
+                    });
+
+                    const viewBoxWidth = 1200;
+                    const padding = 20;
+                    const mercWidth = maxX - minX;
+                    const mercHeight = maxY - minY;
+                    const scale = (viewBoxWidth - 2 * padding) / mercWidth;
+                    const viewBoxHeight = Math.round(mercHeight * scale + 2 * padding);
+
+                    function project([lon, lat]) {
+                        const [mx, my] = geoToMercator(lon, lat);
+                        const sx = (padding + (mx - minX) * scale).toFixed(2);
+                        const sy = (padding + (maxY - my) * scale).toFixed(2);
+                        return `${sx},${sy}`;
+                    }
+
+                    function ringToD(ring) {
+                        return "M " + ring.map(project).join(" L ") + " Z";
+                    }
+
+                    function geomToD(geom) {
+                        if (geom.type === "Polygon") {
+                            return geom.coordinates.map(ringToD).join(" ");
+                        } else if (geom.type === "MultiPolygon") {
+                            return geom.coordinates.map(poly => poly.map(ringToD).join(" ")).join(" ");
+                        }
+                        return "";
+                    }
+
+                    function lineToD(lines) {
+                        return lines.map(line => `M ${project(line[0])} L ${project(line[1])}`).join(" ");
+                    }
+
+                    let pathsHtml = "";
+                    exportFeatures.forEach(feature => {
+                        const props = feature.properties;
+                        const code = getCityCode(props);
+                        const name = getCityName(props);
+                        const prefCode = props.N03_007 ? props.N03_007.substring(0, 2) : "";
+                        const prefName = props.N03_001 || getPrefName(prefCode) || "都道府県";
+                        const fillColor = colorState[code] || "#ffffff";
+                        const d = geomToD(feature.geometry);
+
+                        if (d) {
+                            pathsHtml += `    <path d="${d}" fill="${fillColor}" fill-opacity="0.85" stroke="none" data-code="${code}" data-name="${name}" data-pref="${prefName}"><title>${prefName} ${name}</title></path>\n`;
+                        }
+                    });
+
+                    let boundarySvgHtml = "";
+                    ["ward", "city", "pref", "coast"].forEach(type => {
+                        const setting = boundarySettings[type];
+                        const geojson = boundaryGeoJsons[type];
+                        if (setting.show && geojson && geojson.geometry.coordinates.length > 0) {
+                            let dashAttr = "";
+                            if (setting.style === "dashed") dashAttr = 'stroke-dasharray="6,4"';
+                            else if (setting.style === "dotted") dashAttr = 'stroke-dasharray="2,3"';
+
+                            const d = lineToD(geojson.geometry.coordinates);
+                            if (d) {
+                                boundarySvgHtml += `    <path d="${d}" fill="none" stroke="${setting.color}" stroke-width="${setting.weight}" ${dashAttr} stroke-linecap="round" stroke-linejoin="round"/>\n`;
+                            }
+                        }
+                    });
+
+                    const svgString = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${viewBoxWidth} ${viewBoxHeight}" width="${viewBoxWidth}" height="${viewBoxHeight}">
+  <style>
+    path { transition: fill 0.2s; }
+  </style>
+  <rect width="100%" height="100%" fill="${mapBgColor}"/>
+  <g id="municipalities">
+${pathsHtml}  </g>
+  <g id="boundaries">
+${boundarySvgHtml}  </g>
+</svg>`;
+
+                    const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    const labelName = getSelectedPrefLabel(selectedPrefCodes);
+                    a.download = `japan_map_${labelName}_${new Date().toISOString().slice(0,10)}.svg`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+
+                    showLoading(false);
+                    showToast("SVGベクター画像を保存しました");
+                } catch (err) {
+                    console.error("SVG export error:", err);
+                    showLoading(false);
+                    showToast("SVG画像の生成に失敗しました", "error");
+                }
+            }, 50);
+        }
+
+        function geoToMercator(lon, lat) {
+            const x = lon * Math.PI / 180;
+            const rad = Math.max(-85, Math.min(85, lat)) * Math.PI / 180;
+            const y = Math.log(Math.tan(Math.PI / 4 + rad / 2));
+            return [x, y];
+        }
+    </script>
+</body>
+</html>
