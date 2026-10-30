@@ -1,5 +1,5 @@
 // Service Worker (sw.js)
-const CACHE_NAME = 'japan-map-paint-pwa-v1.1.5';
+const CACHE_NAME = 'japan-map-paint-pwa-v1.2.0';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
