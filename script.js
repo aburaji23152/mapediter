@@ -54,6 +54,12 @@ let colorState = {};
 let currentCityMap = {};
 let nationalFeaturesCache = null;
 
+// 背景・陸地設定
+let defaultLandColor = "#ffffff";
+let defaultLandOpacity = 0.45;
+let bgImageDataUrl = null;
+let mapBgColor = "#f1f5f9";
+
 // 境界線カスタマイズ状態
 let boundarySettings = {
     coast: { show: true, color: "#1e293b", weight: 2.0, style: "solid" },
@@ -62,7 +68,6 @@ let boundarySettings = {
     county: { show: true, color: "#64748b", weight: 1.0, style: "dotted" },
     ward: { show: true, color: "#64748b", weight: 1.0, style: "dashed" }
 };
-let mapBgColor = "#f1f5f9";
 
 // 抽出された境界線データ & レイヤー
 let boundaryGeoJsons = { coast: null, pref: null, city: null, county: null, ward: null };
@@ -82,6 +87,9 @@ const STORAGE_KEY_SELECTED_PREFS = "japan_map_selected_prefs_v1";
 const STORAGE_KEY_ISLANDS = "japan_map_include_islands_v1";
 const STORAGE_KEY_BOUNDARIES = "japan_map_boundaries_v1";
 const STORAGE_KEY_BGCOLOR = "japan_map_bgcolor_v1";
+const STORAGE_KEY_LANDCOLOR = "japan_map_landcolor_v1";
+const STORAGE_KEY_LANDOPACITY = "japan_map_landopacity_v1";
+const STORAGE_KEY_BGIMAGE = "japan_map_bgimage_v1";
 
 // --- 初期化処理 ---
 window.onload = function() {
@@ -210,6 +218,13 @@ function saveToLocalStorage() {
         localStorage.setItem(STORAGE_KEY_ISLANDS, JSON.stringify(includeIslands));
         localStorage.setItem(STORAGE_KEY_BOUNDARIES, JSON.stringify(boundarySettings));
         localStorage.setItem(STORAGE_KEY_BGCOLOR, mapBgColor);
+        localStorage.setItem(STORAGE_KEY_LANDCOLOR, defaultLandColor);
+        localStorage.setItem(STORAGE_KEY_LANDOPACITY, defaultLandOpacity);
+        if (bgImageDataUrl) {
+            localStorage.setItem(STORAGE_KEY_BGIMAGE, bgImageDataUrl);
+        } else {
+            localStorage.removeItem(STORAGE_KEY_BGIMAGE);
+        }
     } catch (e) {
         console.warn("LocalStorage への保存に失敗しました:", e);
     }
@@ -222,12 +237,18 @@ function loadFromLocalStorage() {
         const savedIslands = localStorage.getItem(STORAGE_KEY_ISLANDS);
         const savedBoundaries = localStorage.getItem(STORAGE_KEY_BOUNDARIES);
         const savedBgColor = localStorage.getItem(STORAGE_KEY_BGCOLOR);
+        const savedLandColor = localStorage.getItem(STORAGE_KEY_LANDCOLOR);
+        const savedLandOpacity = localStorage.getItem(STORAGE_KEY_LANDOPACITY);
+        const savedBgImage = localStorage.getItem(STORAGE_KEY_BGIMAGE);
 
         if (savedState) colorState = JSON.parse(savedState) || {};
         if (savedPrefs) selectedPrefCodes = JSON.parse(savedPrefs) || ["ALL"];
         if (savedIslands) includeIslands = { ...includeIslands, ...JSON.parse(savedIslands) };
         if (savedBoundaries) boundarySettings = { ...boundarySettings, ...JSON.parse(savedBoundaries) };
         if (savedBgColor) mapBgColor = savedBgColor;
+        if (savedLandColor) defaultLandColor = savedLandColor;
+        if (savedLandOpacity) defaultLandOpacity = parseFloat(savedLandOpacity);
+        if (savedBgImage) bgImageDataUrl = savedBgImage;
     } catch (e) {
         console.warn("LocalStorage からの読み込みに失敗しました:", e);
     }
@@ -236,6 +257,16 @@ function loadFromLocalStorage() {
 function initBoundaryUIValues() {
     document.getElementById("bgColorPicker").value = mapBgColor;
     applyMapBgColor(mapBgColor);
+
+    document.getElementById("landColorPicker").value = defaultLandColor;
+    document.getElementById("landOpacityRange").value = defaultLandOpacity;
+    document.getElementById("landOpacityVal").textContent = defaultLandOpacity;
+
+    if (bgImageDataUrl) {
+        applyBgImage(bgImageDataUrl);
+        document.getElementById("bgImageName").textContent = "背景画像適用中";
+        document.getElementById("btnRemoveBgImage").classList.remove("hidden");
+    }
 
     const uiMap = [
         { type: "coast", chk: "chkCoastBoundary", color: "colorCoastBoundary", weight: "weightCoastBoundary", style: "styleCoastBoundary" },
@@ -260,6 +291,19 @@ function applyMapBgColor(color) {
     mapBgColor = color;
     const mapContainer = document.getElementById("map");
     if (mapContainer) mapContainer.style.backgroundColor = color;
+}
+
+function applyBgImage(url) {
+    const mapContainer = document.getElementById("map");
+    if (!mapContainer) return;
+    if (url) {
+        mapContainer.style.backgroundImage = `url(${url})`;
+        mapContainer.style.backgroundSize = "cover";
+        mapContainer.style.backgroundPosition = "center";
+        mapContainer.style.backgroundRepeat = "no-repeat";
+    } else {
+        mapContainer.style.backgroundImage = "none";
+    }
 }
 
 function isIslandMunicipality(code, props = null) {
@@ -550,9 +594,53 @@ function bindEvents() {
     document.getElementById("btnExportPng").addEventListener("click", exportMapImage);
     document.getElementById("btnExportSvg").addEventListener("click", exportMapSvg);
 
+    // 海の色・背景色設定
     document.getElementById("bgColorPicker").addEventListener("input", (e) => {
         applyMapBgColor(e.target.value);
         saveToLocalStorage();
+    });
+
+    // 陸の色（未塗りエリア）設定
+    document.getElementById("landColorPicker").addEventListener("input", (e) => {
+        defaultLandColor = e.target.value;
+        refreshLayerStyles();
+        saveToLocalStorage();
+    });
+
+    // 陸の透明度設定
+    document.getElementById("landOpacityRange").addEventListener("input", (e) => {
+        defaultLandOpacity = parseFloat(e.target.value);
+        document.getElementById("landOpacityVal").textContent = defaultLandOpacity;
+        refreshLayerStyles();
+        saveToLocalStorage();
+    });
+
+    // 背景画像アップロード
+    document.getElementById("bgImageInput").addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                bgImageDataUrl = evt.target.result;
+                applyBgImage(bgImageDataUrl);
+                document.getElementById("bgImageName").textContent = file.name;
+                document.getElementById("btnRemoveBgImage").classList.remove("hidden");
+                saveToLocalStorage();
+                showToast("背景画像を設定しました");
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+
+    // 背景画像削除
+    document.getElementById("btnRemoveBgImage").addEventListener("click", () => {
+        bgImageDataUrl = null;
+        applyBgImage(null);
+        document.getElementById("bgImageName").textContent = "画像を選択...";
+        document.getElementById("btnRemoveBgImage").classList.add("hidden");
+        document.getElementById("bgImageInput").value = "";
+        saveToLocalStorage();
+        showToast("背景画像を削除しました");
     });
 
     const boundaryUIKeys = [
@@ -829,8 +917,8 @@ function featureStyle(feature) {
         };
     } else {
         return {
-            fillColor: "#ffffff",
-            fillOpacity: 0.45,
+            fillColor: defaultLandColor,
+            fillOpacity: defaultLandOpacity,
             stroke: false
         };
     }
@@ -1001,7 +1089,10 @@ function exportStateJson() {
     const exportData = {
         version: "1.0",
         exportedAt: new Date().toISOString(),
-        colorState: colorState
+        colorState: colorState,
+        defaultLandColor: defaultLandColor,
+        defaultLandOpacity: defaultLandOpacity,
+        mapBgColor: mapBgColor
     };
     const jsonStr = JSON.stringify(exportData, null, 2);
     const blob = new Blob([jsonStr], { type: "application/json" });
@@ -1026,10 +1117,15 @@ function importStateJson(e) {
             const data = JSON.parse(event.target.result);
             if (data && data.colorState) {
                 colorState = { ...colorState, ...data.colorState };
+                if (data.defaultLandColor) defaultLandColor = data.defaultLandColor;
+                if (data.defaultLandOpacity !== undefined) defaultLandOpacity = parseFloat(data.defaultLandOpacity);
+                if (data.mapBgColor) mapBgColor = data.mapBgColor;
+
+                initBoundaryUIValues();
                 refreshLayerStyles();
                 saveToLocalStorage();
                 updateUIStats();
-                showToast("JSONから塗り状態を復元しました");
+                showToast("JSONから設定と塗り状態を復元しました");
             } else {
                 throw new Error("無効なJSONデータ構造です");
             }
@@ -1089,16 +1185,29 @@ function saveCanvasAsImage(canvas) {
 
         ctx.fillStyle = mapBgColor;
         ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
-        
-        ctx.drawImage(canvas, margin, margin);
 
-        const link = document.createElement("a");
-        const labelName = getSelectedPrefLabel(selectedPrefCodes);
-        link.download = `japan_map_${labelName}_${new Date().toISOString().slice(0,10)}.png`;
-        link.href = finalCanvas.toDataURL("image/png");
-        link.click();
-        showLoading(false);
-        showToast("地図をPNG画像として保存しました");
+        const renderMapLayer = () => {
+            ctx.drawImage(canvas, margin, margin);
+            const link = document.createElement("a");
+            const labelName = getSelectedPrefLabel(selectedPrefCodes);
+            link.download = `japan_map_${labelName}_${new Date().toISOString().slice(0,10)}.png`;
+            link.href = finalCanvas.toDataURL("image/png");
+            link.click();
+            showLoading(false);
+            showToast("地図をPNG画像として保存しました");
+        };
+
+        if (bgImageDataUrl) {
+            const bgImg = new Image();
+            bgImg.onload = () => {
+                ctx.drawImage(bgImg, 0, 0, finalCanvas.width, finalCanvas.height);
+                renderMapLayer();
+            };
+            bgImg.onerror = () => renderMapLayer();
+            bgImg.src = bgImageDataUrl;
+        } else {
+            renderMapLayer();
+        }
     } catch (err) {
         console.error(err);
         showLoading(false);
@@ -1185,8 +1294,8 @@ function exportMapSvg() {
                 const prefCode = props.N03_007 ? String(props.N03_007).padStart(5, "0").substring(0, 2) : "";
                 const prefName = props.N03_001 || getPrefName(prefCode) || "都道府県";
                 const colored = Boolean(colorState[code]);
-                const fillColor = colored ? colorState[code] : "#ffffff";
-                const fillOpacity = colored ? 0.85 : 0.45;
+                const fillColor = colored ? colorState[code] : defaultLandColor;
+                const fillOpacity = colored ? 0.85 : defaultLandOpacity;
                 const d = geomToD(feature.geometry);
 
                 if (d) {
@@ -1210,13 +1319,18 @@ function exportMapSvg() {
                 }
             });
 
+            let bgImageSvg = "";
+            if (bgImageDataUrl) {
+                bgImageSvg = `  <image href="${bgImageDataUrl}" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />\n`;
+            }
+
             const svgString = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${viewBoxWidth} ${viewBoxHeight}" width="${viewBoxWidth}" height="${viewBoxHeight}">
   <style>
     path { transition: fill 0.2s; }
   </style>
   <rect width="100%" height="100%" fill="${mapBgColor}"/>
-  <g id="municipalities">
+${bgImageSvg}  <g id="municipalities">
 ${pathsHtml}  </g>
   <g id="boundaries">
 ${boundarySvgHtml}  </g>
