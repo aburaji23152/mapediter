@@ -56,7 +56,8 @@ let nationalFeaturesCache = null;
 
 // 背景・陸地設定
 let defaultLandColor = "#ffffff";
-let defaultLandOpacity = 0.45;
+let enableLandOpacity = false; // 透過の有効/無効フラグ
+let defaultLandOpacity = 0.45; // 透過設定時の透明度
 let bgImageDataUrl = null;
 let mapBgColor = "#f1f5f9";
 
@@ -88,6 +89,7 @@ const STORAGE_KEY_ISLANDS = "japan_map_include_islands_v1";
 const STORAGE_KEY_BOUNDARIES = "japan_map_boundaries_v1";
 const STORAGE_KEY_BGCOLOR = "japan_map_bgcolor_v1";
 const STORAGE_KEY_LANDCOLOR = "japan_map_landcolor_v1";
+const STORAGE_KEY_ENABLE_OPACITY = "japan_map_enable_opacity_v1";
 const STORAGE_KEY_LANDOPACITY = "japan_map_landopacity_v1";
 const STORAGE_KEY_BGIMAGE = "japan_map_bgimage_v1";
 
@@ -219,6 +221,7 @@ function saveToLocalStorage() {
         localStorage.setItem(STORAGE_KEY_BOUNDARIES, JSON.stringify(boundarySettings));
         localStorage.setItem(STORAGE_KEY_BGCOLOR, mapBgColor);
         localStorage.setItem(STORAGE_KEY_LANDCOLOR, defaultLandColor);
+        localStorage.setItem(STORAGE_KEY_ENABLE_OPACITY, JSON.stringify(enableLandOpacity));
         localStorage.setItem(STORAGE_KEY_LANDOPACITY, defaultLandOpacity);
         if (bgImageDataUrl) {
             localStorage.setItem(STORAGE_KEY_BGIMAGE, bgImageDataUrl);
@@ -238,6 +241,7 @@ function loadFromLocalStorage() {
         const savedBoundaries = localStorage.getItem(STORAGE_KEY_BOUNDARIES);
         const savedBgColor = localStorage.getItem(STORAGE_KEY_BGCOLOR);
         const savedLandColor = localStorage.getItem(STORAGE_KEY_LANDCOLOR);
+        const savedEnableOpacity = localStorage.getItem(STORAGE_KEY_ENABLE_OPACITY);
         const savedLandOpacity = localStorage.getItem(STORAGE_KEY_LANDOPACITY);
         const savedBgImage = localStorage.getItem(STORAGE_KEY_BGIMAGE);
 
@@ -247,7 +251,8 @@ function loadFromLocalStorage() {
         if (savedBoundaries) boundarySettings = { ...boundarySettings, ...JSON.parse(savedBoundaries) };
         if (savedBgColor) mapBgColor = savedBgColor;
         if (savedLandColor) defaultLandColor = savedLandColor;
-        if (savedLandOpacity) defaultLandOpacity = parseFloat(savedLandOpacity);
+        if (savedEnableOpacity !== null) enableLandOpacity = JSON.parse(savedEnableOpacity);
+        if (savedLandOpacity !== null) defaultLandOpacity = parseFloat(savedLandOpacity);
         if (savedBgImage) bgImageDataUrl = savedBgImage;
     } catch (e) {
         console.warn("LocalStorage からの読み込みに失敗しました:", e);
@@ -259,8 +264,14 @@ function initBoundaryUIValues() {
     applyMapBgColor(mapBgColor);
 
     document.getElementById("landColorPicker").value = defaultLandColor;
-    document.getElementById("landOpacityRange").value = defaultLandOpacity;
-    document.getElementById("landOpacityVal").textContent = defaultLandOpacity;
+
+    const chkOpacity = document.getElementById("chkEnableOpacity");
+    chkOpacity.checked = enableLandOpacity;
+
+    const rangeOpacity = document.getElementById("landOpacityRange");
+    rangeOpacity.value = defaultLandOpacity;
+    rangeOpacity.disabled = !enableLandOpacity;
+    document.getElementById("landOpacityVal").textContent = enableLandOpacity ? defaultLandOpacity : "1.00 (不透明)";
 
     if (bgImageDataUrl) {
         applyBgImage(bgImageDataUrl);
@@ -607,7 +618,17 @@ function bindEvents() {
         saveToLocalStorage();
     });
 
-    // 陸の透明度設定
+    // 透過の有効/無効切り替え
+    document.getElementById("chkEnableOpacity").addEventListener("change", (e) => {
+        enableLandOpacity = e.target.checked;
+        const rangeOpacity = document.getElementById("landOpacityRange");
+        rangeOpacity.disabled = !enableLandOpacity;
+        document.getElementById("landOpacityVal").textContent = enableLandOpacity ? defaultLandOpacity : "1.00 (不透明)";
+        refreshLayerStyles();
+        saveToLocalStorage();
+    });
+
+    // 陸の透明度スライダー設定
     document.getElementById("landOpacityRange").addEventListener("input", (e) => {
         defaultLandOpacity = parseFloat(e.target.value);
         document.getElementById("landOpacityVal").textContent = defaultLandOpacity;
@@ -748,7 +769,8 @@ function renderGeoJson(data, topologyFeatures) {
             layer.on({
                 mouseover: (e) => {
                     const l = e.target;
-                    l.setStyle({ fillOpacity: 0.95 });
+                    const opacity = enableLandOpacity ? Math.min(1.0, defaultLandOpacity + 0.2) : 1.0;
+                    l.setStyle({ fillOpacity: opacity });
                     showHoverCard(true, prefName, name, code);
                 },
                 mouseout: (e) => {
@@ -905,20 +927,22 @@ function bringBoundariesToFront() {
     });
 }
 
+// 陸地スタイルの決定（透過有効フラグに応じた透明度の計算）
 function featureStyle(feature) {
     const code = getCityCode(feature.properties);
     const colored = colorState[code];
+    const fillOpacity = enableLandOpacity ? defaultLandOpacity : 1.0;
 
     if (colored) {
         return {
             fillColor: colored,
-            fillOpacity: 0.85,
+            fillOpacity: fillOpacity,
             stroke: false
         };
     } else {
         return {
             fillColor: defaultLandColor,
-            fillOpacity: defaultLandOpacity,
+            fillOpacity: fillOpacity,
             stroke: false
         };
     }
@@ -1091,6 +1115,7 @@ function exportStateJson() {
         exportedAt: new Date().toISOString(),
         colorState: colorState,
         defaultLandColor: defaultLandColor,
+        enableLandOpacity: enableLandOpacity,
         defaultLandOpacity: defaultLandOpacity,
         mapBgColor: mapBgColor
     };
@@ -1118,6 +1143,7 @@ function importStateJson(e) {
             if (data && data.colorState) {
                 colorState = { ...colorState, ...data.colorState };
                 if (data.defaultLandColor) defaultLandColor = data.defaultLandColor;
+                if (data.enableLandOpacity !== undefined) enableLandOpacity = data.enableLandOpacity;
                 if (data.defaultLandOpacity !== undefined) defaultLandOpacity = parseFloat(data.defaultLandOpacity);
                 if (data.mapBgColor) mapBgColor = data.mapBgColor;
 
@@ -1287,6 +1313,8 @@ function exportMapSvg() {
             }
 
             let pathsHtml = "";
+            const fillOpacity = enableLandOpacity ? defaultLandOpacity : 1.0;
+
             exportFeatures.forEach(feature => {
                 const props = feature.properties;
                 const code = getCityCode(props);
@@ -1295,7 +1323,6 @@ function exportMapSvg() {
                 const prefName = props.N03_001 || getPrefName(prefCode) || "都道府県";
                 const colored = Boolean(colorState[code]);
                 const fillColor = colored ? colorState[code] : defaultLandColor;
-                const fillOpacity = colored ? 0.85 : defaultLandOpacity;
                 const d = geomToD(feature.geometry);
 
                 if (d) {
