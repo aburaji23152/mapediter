@@ -158,18 +158,46 @@
                 </div>
             </div>
 
-            <!-- 地図背景（タイル）切替 -->
-            <div class="p-4 border-b border-slate-100">
-                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">背景地図スタイル</label>
-                <div class="grid grid-cols-3 gap-1.5 bg-slate-100 p-1 rounded-lg mb-3">
+            <!-- 地図背景＆カラー設定 -->
+            <div class="p-4 border-b border-slate-100 space-y-3">
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider">背景＆標準カラー設定</label>
+                
+                <div class="grid grid-cols-3 gap-1.5 bg-slate-100 p-1 rounded-lg mb-2">
                     <button data-tile="pale" class="tile-btn active bg-white text-indigo-600 shadow-sm text-xs font-medium py-1 px-2 rounded-md transition text-center">地理院(淡色)</button>
                     <button data-tile="std" class="tile-btn text-slate-600 hover:text-slate-900 text-xs font-medium py-1 px-2 rounded-md transition text-center">地理院(標準)</button>
                     <button data-tile="none" class="tile-btn text-slate-600 hover:text-slate-900 text-xs font-medium py-1 px-2 rounded-md transition text-center">白地図(なし)</button>
                 </div>
                 
-                <div class="flex items-center justify-between text-xs">
-                    <span class="text-slate-600 font-medium">背景色 (海洋/余白):</span>
-                    <input type="color" id="bgColorPicker" value="#f1f5f9" class="w-6 h-6 rounded-md cursor-pointer border border-slate-300 shadow-sm">
+                <div class="space-y-2 text-xs">
+                    <div class="flex items-center justify-between">
+                        <span class="text-slate-600 font-medium">海の色 (海洋/背景):</span>
+                        <input type="color" id="bgColorPicker" value="#f1f5f9" class="w-6 h-6 rounded-md cursor-pointer border border-slate-300 shadow-sm">
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-slate-600 font-medium">陸の色 (未塗りエリア):</span>
+                        <input type="color" id="landColorPicker" value="#ffffff" class="w-6 h-6 rounded-md cursor-pointer border border-slate-300 shadow-sm">
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-slate-600 font-medium">未塗りエリア透明度:</span>
+                        <div class="flex items-center gap-1.5">
+                            <input type="range" id="landOpacityRange" min="0" max="1" step="0.05" value="0.45" class="w-20 accent-indigo-600 cursor-pointer">
+                            <span id="landOpacityVal" class="text-[11px] text-slate-500 font-mono w-7 text-right">0.45</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 背景画像設定 -->
+                <div class="pt-2 border-t border-slate-100 space-y-2 text-xs">
+                    <span class="text-slate-600 font-medium block">背景画像の設定:</span>
+                    <div class="flex gap-2 items-center">
+                        <label class="flex-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 px-2 py-1.5 rounded-lg text-center cursor-pointer font-medium shadow-xs truncate">
+                            <span id="bgImageName">画像を選択...</span>
+                            <input type="file" id="bgImageInput" accept="image/*" class="hidden">
+                        </label>
+                        <button id="btnRemoveBgImage" class="bg-rose-50 hover:bg-rose-100 text-rose-600 px-2.5 py-1.5 rounded-lg font-medium border border-rose-200 hidden">
+                            削除
+                        </button>
+                    </div>
                 </div>
             </div>
 
