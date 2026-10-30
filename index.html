@@ -177,11 +177,21 @@
                         <span class="text-slate-600 font-medium">陸の色 (未塗りエリア):</span>
                         <input type="color" id="landColorPicker" value="#ffffff" class="w-6 h-6 rounded-md cursor-pointer border border-slate-300 shadow-sm">
                     </div>
-                    <div class="flex items-center justify-between">
-                        <span class="text-slate-600 font-medium">未塗りエリア透明度:</span>
-                        <div class="flex items-center gap-1.5">
-                            <input type="range" id="landOpacityRange" min="0" max="1" step="0.05" value="0.45" class="w-20 accent-indigo-600 cursor-pointer">
-                            <span id="landOpacityVal" class="text-[11px] text-slate-500 font-mono w-7 text-right">0.45</span>
+
+                    <!-- 透過モード設定（ON/OFF切り替え & スライダー） -->
+                    <div class="pt-2 border-t border-slate-100 space-y-1.5">
+                        <div class="flex items-center justify-between">
+                            <label class="flex items-center gap-1.5 font-medium text-slate-700 cursor-pointer select-none">
+                                <input type="checkbox" id="chkEnableOpacity" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+                                <span>陸地の透過（半透明）を有効化</span>
+                            </label>
+                        </div>
+                        <div class="flex items-center justify-between pl-5" id="opacityControls">
+                            <span class="text-slate-500 text-[11px]">不透明度 (濃度):</span>
+                            <div class="flex items-center gap-1.5">
+                                <input type="range" id="landOpacityRange" min="0.05" max="1.0" step="0.05" value="0.45" class="w-20 accent-indigo-600 cursor-pointer disabled:opacity-40">
+                                <span id="landOpacityVal" class="text-[11px] text-slate-500 font-mono w-8 text-right">0.45</span>
+                            </div>
                         </div>
                     </div>
                 </div>
