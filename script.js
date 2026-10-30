@@ -103,20 +103,21 @@ let selectedColor = "#3b82f6";
 
 let colorState = {};
 let currentCityMap = {};
-let nationalFeaturesCache = null; // 全国版統合 GeoJSON データのキャッシュ
+let nationalFeaturesCache = null;
 
-// 境界線カスタマイズ状態
+// 境界線カスタマイズ状態（同郡内の町村境: county を追加）
 let boundarySettings = {
     coast: { show: true, color: "#1e293b", weight: 2.0, style: "solid" },
     pref: { show: true, color: "#0f172a", weight: 2.5, style: "solid" },
     city: { show: true, color: "#475569", weight: 1.0, style: "solid" },
+    county: { show: true, color: "#64748b", weight: 0.8, style: "dotted" },
     ward: { show: true, color: "#64748b", weight: 1.0, style: "dashed" }
 };
 let mapBgColor = "#f1f5f9";
 
 // 抽出された境界線データ & レイヤー
-let boundaryGeoJsons = { coast: null, pref: null, city: null, ward: null };
-let boundaryLayers = { coast: null, pref: null, city: null, ward: null };
+let boundaryGeoJsons = { coast: null, pref: null, city: null, county: null, ward: null };
+let boundaryLayers = { coast: null, pref: null, city: null, county: null, ward: null };
 
 // 島嶼部（離島）表示フラグ
 let includeIslands = {
@@ -201,7 +202,6 @@ function initPwaSupport() {
     });
 }
 
-// 都道府県判定補助関数（Featureのpropertiesから都道府県コード2桁を取得）
 function getFeaturePrefCode(feature) {
     const props = feature.properties || {};
     if (props.N03_007) {
@@ -216,11 +216,9 @@ function getFeaturePrefCode(feature) {
     return "";
 }
 
-// 常に全国統合ファイルからデータを読み込み・フィルタリングする処理
 async function loadPrefectureData(codes) {
     showLoading(true, "GeoJSON境界データを読み込んでいます...");
     try {
-        // 未取得の場合は全国データを1度だけ取得してキャッシュ
         if (!nationalFeaturesCache) {
             const res = await fetch("https://raw.githubusercontent.com/smartnews-smri/japan-topography/main/data/municipality/geojson/s0010/N03-21_210101.json");
             if (!res.ok) throw new Error("全国データの取得に失敗しました");
@@ -246,8 +244,6 @@ async function loadPrefectureData(codes) {
             features: displayFeatures
         };
 
-        // トポロジー解析には常に全国統合データ（nationalFeaturesCache）を丸ごと渡す
-        // これにより、どの県を選んでも同一の共通座標から一貫した境界線が生成される
         renderGeoJson(currentGeoJsonData, nationalFeaturesCache);
         updateUIStats();
         showLoading(false);
@@ -292,29 +288,23 @@ function initBoundaryUIValues() {
     document.getElementById("bgColorPicker").value = mapBgColor;
     applyMapBgColor(mapBgColor);
 
-    // 海岸線
-    document.getElementById("chkCoastBoundary").checked = boundarySettings.coast.show;
-    document.getElementById("colorCoastBoundary").value = boundarySettings.coast.color;
-    document.getElementById("weightCoastBoundary").value = boundarySettings.coast.weight;
-    document.getElementById("styleCoastBoundary").value = boundarySettings.coast.style;
+    const uiMap = [
+        { type: "coast", chk: "chkCoastBoundary", color: "colorCoastBoundary", weight: "weightCoastBoundary", style: "styleCoastBoundary" },
+        { type: "pref", chk: "chkPrefBoundary", color: "colorPrefBoundary", weight: "weightPrefBoundary", style: "stylePrefBoundary" },
+        { type: "city", chk: "chkCityBoundary", color: "colorCityBoundary", weight: "weightCityBoundary", style: "styleCityBoundary" },
+        { type: "county", chk: "chkCountyBoundary", color: "colorCountyBoundary", weight: "weightCountyBoundary", style: "styleCountyBoundary" },
+        { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", weight: "weightWardBoundary", style: "styleWardBoundary" }
+    ];
 
-    // 県境
-    document.getElementById("chkPrefBoundary").checked = boundarySettings.pref.show;
-    document.getElementById("colorPrefBoundary").value = boundarySettings.pref.color;
-    document.getElementById("weightPrefBoundary").value = boundarySettings.pref.weight;
-    document.getElementById("stylePrefBoundary").value = boundarySettings.pref.style;
-
-    // 市境
-    document.getElementById("chkCityBoundary").checked = boundarySettings.city.show;
-    document.getElementById("colorCityBoundary").value = boundarySettings.city.color;
-    document.getElementById("weightCityBoundary").value = boundarySettings.city.weight;
-    document.getElementById("styleCityBoundary").value = boundarySettings.city.style;
-
-    // 政令市区境
-    document.getElementById("chkWardBoundary").checked = boundarySettings.ward.show;
-    document.getElementById("colorWardBoundary").value = boundarySettings.ward.color;
-    document.getElementById("weightWardBoundary").value = boundarySettings.ward.weight;
-    document.getElementById("styleWardBoundary").value = boundarySettings.ward.style;
+    uiMap.forEach(item => {
+        const chk = document.getElementById(item.chk);
+        if (chk && boundarySettings[item.type]) {
+            chk.checked = boundarySettings[item.type].show;
+            document.getElementById(item.color).value = boundarySettings[item.type].color;
+            document.getElementById(item.weight).value = boundarySettings[item.type].weight;
+            document.getElementById(item.style).value = boundarySettings[item.type].style;
+        }
+    });
 }
 
 function applyMapBgColor(color) {
@@ -620,13 +610,17 @@ function bindEvents() {
         { type: "coast", chk: "chkCoastBoundary", color: "colorCoastBoundary", weight: "weightCoastBoundary", style: "styleCoastBoundary" },
         { type: "pref", chk: "chkPrefBoundary", color: "colorPrefBoundary", weight: "weightPrefBoundary", style: "stylePrefBoundary" },
         { type: "city", chk: "chkCityBoundary", color: "colorCityBoundary", weight: "weightCityBoundary", style: "styleCityBoundary" },
+        { type: "county", chk: "chkCountyBoundary", color: "colorCountyBoundary", weight: "weightCountyBoundary", style: "styleCountyBoundary" },
         { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", weight: "weightWardBoundary", style: "styleWardBoundary" }
     ];
 
     boundaryUIKeys.forEach(item => {
+        const chkEl = document.getElementById(item.chk);
+        if (!chkEl) return;
+
         const updateBoundarySetting = () => {
             boundarySettings[item.type] = {
-                show: document.getElementById(item.chk).checked,
+                show: chkEl.checked,
                 color: document.getElementById(item.color).value,
                 weight: parseFloat(document.getElementById(item.weight).value),
                 style: document.getElementById(item.style).value
@@ -635,10 +629,10 @@ function bindEvents() {
             saveToLocalStorage();
         };
 
-        document.getElementById(item.chk).addEventListener("change", updateBoundarySetting);
-        document.getElementById(item.color).addEventListener("input", updateBoundarySetting);
-        document.getElementById(item.weight).addEventListener("change", updateBoundarySetting);
-        document.getElementById(item.style).addEventListener("change", updateBoundarySetting);
+        chkEl.addEventListener("change", updateBoundarySetting);
+        document.getElementById(item.color)?.addEventListener("input", updateBoundarySetting);
+        document.getElementById(item.weight)?.addEventListener("change", updateBoundarySetting);
+        document.getElementById(item.style)?.addEventListener("change", updateBoundarySetting);
     });
 
     document.querySelectorAll(".tile-btn").forEach(btn => {
@@ -733,11 +727,9 @@ function renderGeoJson(data, topologyFeatures) {
     fitToCurrentBounds();
 }
 
-// 高精度トポロジー解析 & 境界線抽出ロジック（スナップ精度最適化・正確な県境対応）
+// 高精度トポロジー解析 & 境界線抽出ロジック（同郡内の町村境判定を追加）
 function extractBoundaries(topologyFeatures, selectedPrefSet) {
     const edgeMap = new Map();
-
-    // 座標スナップ係数：約10m精度で微小な頂点誤差をスナップ
     const SCALE = 10000;
 
     topologyFeatures.forEach(feature => {
@@ -748,8 +740,11 @@ function extractBoundaries(topologyFeatures, selectedPrefSet) {
         const cityCode = paddedCode || "00000";
         const isWard = Boolean(props.N03_005) || (props.N03_004 && String(props.N03_004).endsWith("区") && props.N03_003 && String(props.N03_003).endsWith("市"));
         const seireiName = isWard ? (props.N03_003 || "") : null;
+        
+        // 同郡判定（N03_003 に「郡」が含まれる場合）
+        const countyName = (!isWard && props.N03_003 && String(props.N03_003).endsWith("郡")) ? props.N03_003 : null;
 
-        const meta = { prefCode, cityCode, seireiName };
+        const meta = { prefCode, cityCode, seireiName, countyName };
 
         function processRing(ring) {
             for (let i = 0; i < ring.length - 1; i++) {
@@ -761,7 +756,7 @@ function extractBoundaries(topologyFeatures, selectedPrefSet) {
                 const x2 = Math.round(p2[0] * SCALE);
                 const y2 = Math.round(p2[1] * SCALE);
 
-                if (x1 === x2 && y1 === y2) continue; // 同一点はスキップ
+                if (x1 === x2 && y1 === y2) continue;
 
                 const k1 = `${x1}_${y1}`;
                 const k2 = `${x2}_${y2}`;
@@ -771,7 +766,6 @@ function extractBoundaries(topologyFeatures, selectedPrefSet) {
                     edgeMap.set(key, { p1, p2, f1: meta, f2: null });
                 } else {
                     const existing = edgeMap.get(key);
-                    // 重複エントリー（同一ポリゴンの重複線分）を回避
                     if (existing.f1.cityCode !== meta.cityCode) {
                         existing.f2 = meta;
                     }
@@ -792,6 +786,7 @@ function extractBoundaries(topologyFeatures, selectedPrefSet) {
     const coastLines = [];
     const prefLines = [];
     const cityLines = [];
+    const countyLines = [];
     const wardLines = [];
 
     edgeMap.forEach(({ p1, p2, f1, f2 }) => {
@@ -801,27 +796,25 @@ function extractBoundaries(topologyFeatures, selectedPrefSet) {
         if (!f1Selected && !f2Selected) return;
 
         if (f2) {
-            // 2つのポリゴンに共有されているエッジ
             if (f1.prefCode !== f2.prefCode) {
-                // 都道府県が異なる＝100%正確な県境
                 prefLines.push([p1, p2]);
             } else if (f1.cityCode !== f2.cityCode) {
                 if (f1Selected && f2Selected) {
                     if (f1.seireiName && f2.seireiName && f1.seireiName === f2.seireiName) {
                         wardLines.push([p1, p2]);
+                    } else if (f1.countyName && f2.countyName && f1.countyName === f2.countyName) {
+                        // 同じ郡に属する町村同士の境界
+                        countyLines.push([p1, p2]);
                     } else {
                         cityLines.push([p1, p2]);
                     }
                 }
             }
         } else {
-            // 共有相手がないエッジ（海岸線、または外郭境界）
             const activeMeta = f1Selected ? f1 : f2;
             if (LANDLOCKED_PREFS.has(activeMeta.prefCode)) {
-                // 内陸県で相手がない外郭境界＝県境
                 prefLines.push([p1, p2]);
             } else {
-                // 海に面した外郭線＝海岸線
                 coastLines.push([p1, p2]);
             }
         }
@@ -831,12 +824,13 @@ function extractBoundaries(topologyFeatures, selectedPrefSet) {
         coast: { type: "Feature", geometry: { type: "MultiLineString", coordinates: coastLines } },
         pref: { type: "Feature", geometry: { type: "MultiLineString", coordinates: prefLines } },
         city: { type: "Feature", geometry: { type: "MultiLineString", coordinates: cityLines } },
+        county: { type: "Feature", geometry: { type: "MultiLineString", coordinates: countyLines } },
         ward: { type: "Feature", geometry: { type: "MultiLineString", coordinates: wardLines } }
     };
 }
 
 function renderBoundaryLayers() {
-    ["ward", "city", "pref", "coast"].forEach(type => {
+    ["ward", "county", "city", "pref", "coast"].forEach(type => {
         if (boundaryLayers[type]) {
             map.removeLayer(boundaryLayers[type]);
             boundaryLayers[type] = null;
@@ -845,7 +839,7 @@ function renderBoundaryLayers() {
         const setting = boundarySettings[type];
         const geojson = boundaryGeoJsons[type];
 
-        if (setting.show && geojson && geojson.geometry.coordinates.length > 0) {
+        if (setting && setting.show && geojson && geojson.geometry.coordinates.length > 0) {
             let dashArray = null;
             if (setting.style === "dashed") dashArray = "6, 4";
             else if (setting.style === "dotted") dashArray = "2, 3";
@@ -870,7 +864,7 @@ function renderBoundaryLayers() {
 }
 
 function bringBoundariesToFront() {
-    ["ward", "city", "pref", "coast"].forEach(type => {
+    ["ward", "county", "city", "pref", "coast"].forEach(type => {
         if (boundaryLayers[type] && boundaryLayers[type].bringToFront) {
             boundaryLayers[type].bringToFront();
         }
@@ -1255,10 +1249,10 @@ function exportMapSvg() {
             });
 
             let boundarySvgHtml = "";
-            ["ward", "city", "pref", "coast"].forEach(type => {
+            ["ward", "county", "city", "pref", "coast"].forEach(type => {
                 const setting = boundarySettings[type];
                 const geojson = boundaryGeoJsons[type];
-                if (setting.show && geojson && geojson.geometry.coordinates.length > 0) {
+                if (setting && setting.show && geojson && geojson.geometry.coordinates.length > 0) {
                     let dashAttr = "";
                     if (setting.style === "dashed") dashAttr = 'stroke-dasharray="6,4"';
                     else if (setting.style === "dotted") dashAttr = 'stroke-dasharray="2,3"';
