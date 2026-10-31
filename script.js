@@ -29,10 +29,8 @@ const PREFECTURES = [
 
 // 基本パレット（淡い色 12色 ＋ 従来の色 12色 ＝ 全24色）
 const BASE_COLORS = [
-    // 淡い色 (12色)
     "#bfdbfe", "#fca5a5", "#86efac", "#fde047", "#d8b4fe", "#f9a8d4",
     "#a5f3fc", "#fdba74", "#bef264", "#c7d2fe", "#99f6e4", "#cbd5e1",
-    // 従来の色 (12色)
     "#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899",
     "#06b6d4", "#f97316", "#84cc16", "#6366f1", "#14b8a6", "#64748b"
 ];
@@ -51,6 +49,9 @@ const TILE_LAYERS = {
 const LANDLOCKED_PREFS = new Set(["09", "10", "11", "19", "20", "21", "25", "29"]);
 
 // --- アプリケーション状態 ---
+let mapMode = "city"; // "city" | "pref"
+let pendingMapMode = null;
+
 let map = null;
 let currentTileLayer = null;
 let selectedTileType = "pale";
@@ -89,6 +90,7 @@ let includeIslands = { "13": true, "46": true, "47": true };
 let tempIncludeIslands = { ...includeIslands };
 
 // LocalStorage キー
+const STORAGE_KEY_MAP_MODE = "japan_map_mode_v1";
 const STORAGE_KEY_COLOR_STATE = "japan_map_color_state_v1";
 const STORAGE_KEY_SELECTED_PREFS = "japan_map_selected_prefs_v1";
 const STORAGE_KEY_ISLANDS = "japan_map_include_islands_v1";
@@ -114,6 +116,7 @@ window.onload = function() {
 
     initBoundaryUIValues();
     updateHeaderPrefButton();
+    updateModeUI();
     loadPrefectureData(selectedPrefCodes);
 };
 
@@ -183,7 +186,7 @@ async function loadPrefectureData(codes) {
             nationalFeaturesCache = data.features || [];
         }
 
-        const isAll = codes.includes("ALL") || codes.length === 47;
+        const isAll = mapMode === "pref" || codes.includes("ALL") || codes.length === 47;
         let displayFeatures = [];
 
         if (isAll) {
@@ -207,6 +210,7 @@ async function loadPrefectureData(codes) {
 
 function saveToLocalStorage() {
     try {
+        localStorage.setItem(STORAGE_KEY_MAP_MODE, mapMode);
         localStorage.setItem(STORAGE_KEY_COLOR_STATE, JSON.stringify(colorState));
         localStorage.setItem(STORAGE_KEY_SELECTED_PREFS, JSON.stringify(selectedPrefCodes));
         localStorage.setItem(STORAGE_KEY_ISLANDS, JSON.stringify(includeIslands));
@@ -227,6 +231,7 @@ function saveToLocalStorage() {
 
 function loadFromLocalStorage() {
     try {
+        const savedMode = localStorage.getItem(STORAGE_KEY_MAP_MODE);
         const savedState = localStorage.getItem(STORAGE_KEY_COLOR_STATE);
         const savedPrefs = localStorage.getItem(STORAGE_KEY_SELECTED_PREFS);
         const savedIslands = localStorage.getItem(STORAGE_KEY_ISLANDS);
@@ -240,6 +245,7 @@ function loadFromLocalStorage() {
         const savedTileType = localStorage.getItem(STORAGE_KEY_TILE_TYPE);
         const savedCustomColors = localStorage.getItem(STORAGE_KEY_CUSTOM_COLORS);
 
+        if (savedMode) mapMode = savedMode;
         if (savedState) colorState = JSON.parse(savedState) || {};
         if (savedPrefs) selectedPrefCodes = JSON.parse(savedPrefs) || ["ALL"];
         if (savedIslands) includeIslands = { ...includeIslands, ...JSON.parse(savedIslands) };
@@ -413,6 +419,75 @@ function initPrefModalUI() {
         saveToLocalStorage();
         loadPrefectureData(selectedPrefCodes);
     });
+
+    // モード切り替えボタン
+    document.getElementById("btnModeCity").addEventListener("click", () => requestMapModeSwitch("city"));
+    document.getElementById("btnModePref").addEventListener("click", () => requestMapModeSwitch("pref"));
+
+    // モード切り替え確認モーダルボタン
+    document.getElementById("btnCancelModeConfirm").addEventListener("click", () => {
+        document.getElementById("modeConfirmModal").classList.add("hidden");
+        pendingMapMode = null;
+    });
+
+    document.getElementById("btnApplyModeConfirm").addEventListener("click", () => {
+        if (pendingMapMode) {
+            mapMode = pendingMapMode;
+            colorState = {}; // モード変更時にクリア
+            pendingMapMode = null;
+            document.getElementById("modeConfirmModal").classList.add("hidden");
+            updateModeUI();
+            updateHeaderPrefButton();
+            saveToLocalStorage();
+            loadPrefectureData(selectedPrefCodes);
+        }
+    });
+}
+
+function requestMapModeSwitch(targetMode) {
+    if (mapMode === targetMode) return;
+
+    pendingMapMode = targetMode;
+    const label = targetMode === "pref" ? "「都道府県版」" : "「市区町村版」";
+    document.getElementById("targetModeLabel").textContent = label;
+    document.getElementById("modeConfirmModal").classList.remove("hidden");
+    lucide.createIcons();
+}
+
+function updateModeUI() {
+    const btnCity = document.getElementById("btnModeCity");
+    const btnPref = document.getElementById("btnModePref");
+    const prefSelectSection = document.getElementById("prefSelectSection");
+    const appTitle = document.getElementById("appTitle");
+    const unitLabel = document.getElementById("unitLabel");
+    const coloredListTitle = document.getElementById("coloredListTitle");
+    const cityBoundaryBox = document.getElementById("cityBoundaryBox");
+    const countyBoundaryBox = document.getElementById("countyBoundaryBox");
+    const wardBoundaryBox = document.getElementById("wardBoundaryBox");
+
+    if (mapMode === "pref") {
+        btnPref.className = "py-2.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 border shadow-sm bg-indigo-600 text-white border-indigo-600";
+        btnCity.className = "py-2.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 border bg-white text-slate-700 border-slate-200 hover:bg-slate-50";
+        prefSelectSection.classList.add("hidden");
+        appTitle.textContent = "都道府県ペイントエディタ";
+        unitLabel.textContent = "都道府県";
+        coloredListTitle.textContent = "塗った都道府県リスト";
+
+        cityBoundaryBox.classList.add("hidden");
+        countyBoundaryBox.classList.add("hidden");
+        wardBoundaryBox.classList.add("hidden");
+    } else {
+        btnCity.className = "py-2.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 border shadow-sm bg-indigo-600 text-white border-indigo-600";
+        btnPref.className = "py-2.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 border bg-white text-slate-700 border-slate-200 hover:bg-slate-50";
+        prefSelectSection.classList.remove("hidden");
+        appTitle.textContent = "市区町村ペイントエディタ";
+        unitLabel.textContent = "市区町村";
+        coloredListTitle.textContent = "塗った市区町村リスト";
+
+        cityBoundaryBox.classList.remove("hidden");
+        countyBoundaryBox.classList.remove("hidden");
+        wardBoundaryBox.classList.remove("hidden");
+    }
 }
 
 function openPrefModal() {
@@ -457,6 +532,13 @@ function updateModalFooterCount() {
 function updateHeaderPrefButton() {
     const labelEl = document.getElementById("selectedPrefLabel");
     const badgeEl = document.getElementById("selectedPrefBadge");
+
+    if (mapMode === "pref") {
+        labelEl.textContent = "全国（47都道府県）";
+        badgeEl.classList.add("hidden");
+        return;
+    }
+
     labelEl.textContent = getSelectedPrefLabel(selectedPrefCodes);
 
     if (selectedPrefCodes.includes("ALL") || selectedPrefCodes.length === 47) {
@@ -474,7 +556,7 @@ function getSelectedPrefLabel(codes) {
     return codes.length <= 2 ? names.join("・") : `${names[0]}・${names[1]} 外${codes.length - 2}県`;
 }
 
-// カラーパレットの初期化・描画処理（基本24色 ＋ カスタム個別選択12色）
+// カラーパレットの初期化
 function initColorPalettes() {
     renderBasePalette();
     renderCustomPalette();
@@ -606,7 +688,7 @@ function bindEvents() {
     document.getElementById("btnExportPng").addEventListener("click", exportMapImage);
     document.getElementById("btnExportSvg").addEventListener("click", exportMapSvg);
 
-    // ★ リスト削除ボタンの確定バブリングイベント設定（イベントデリゲーション）
+    // リスト削除ボタンのイベントデリゲーション
     const cityListEl = document.getElementById("coloredCityList");
     if (cityListEl) {
         cityListEl.addEventListener("click", (e) => {
@@ -736,7 +818,7 @@ function renderGeoJson(data, topologyFeatures) {
     });
 
     const selectedSet = new Set(
-        selectedPrefCodes.includes("ALL") ? PREFECTURES.map(p => p.code) : selectedPrefCodes
+        (mapMode === "pref" || selectedPrefCodes.includes("ALL")) ? PREFECTURES.map(p => p.code) : selectedPrefCodes
     );
 
     extractBoundaries(filteredTopology, selectedSet);
@@ -746,9 +828,10 @@ function renderGeoJson(data, topologyFeatures) {
         style: featureStyle,
         onEachFeature: (feature, layer) => {
             const props = feature.properties;
-            const code = getCityCode(props);
-            const name = getCityName(props);
-            const prefCode = props.N03_007 ? String(props.N03_007).padStart(5, "0").substring(0, 2) : "";
+            const cityCode = getCityCode(props);
+            const prefCode = getFeaturePrefCode(feature);
+            const code = mapMode === "pref" ? prefCode : cityCode;
+            const name = mapMode === "pref" ? (getPrefName(prefCode) || "都道府県") : getCityName(props);
             const prefName = props.N03_001 || getPrefName(prefCode) || "都道府県";
 
             currentCityMap[code] = { name, prefCode, prefName };
@@ -757,11 +840,25 @@ function renderGeoJson(data, topologyFeatures) {
                 mouseover: (e) => {
                     const colored = Boolean(colorState[code]);
                     const opacity = colored ? 1.0 : (enableLandOpacity ? Math.min(1.0, defaultLandOpacity + 0.2) : 1.0);
-                    e.target.setStyle({ fillOpacity: opacity });
-                    showHoverCard(true, prefName, name, code);
+                    
+                    if (mapMode === "pref") {
+                        geojsonLayer.eachLayer(l => {
+                            if (getFeaturePrefCode(l.feature) === prefCode) l.setStyle({ fillOpacity: opacity });
+                        });
+                    } else {
+                        e.target.setStyle({ fillOpacity: opacity });
+                    }
+
+                    showHoverCard(true, prefName, mapMode === "pref" ? prefName : name, code);
                 },
                 mouseout: (e) => {
-                    geojsonLayer.resetStyle(e.target);
+                    if (mapMode === "pref") {
+                        geojsonLayer.eachLayer(l => {
+                            if (getFeaturePrefCode(l.feature) === prefCode) geojsonLayer.resetStyle(l);
+                        });
+                    } else {
+                        geojsonLayer.resetStyle(e.target);
+                    }
                     showHoverCard(false);
                 },
                 click: (e) => {
@@ -879,7 +976,9 @@ function renderBoundaryLayers() {
 }
 
 function featureStyle(feature) {
-    const code = getCityCode(feature.properties);
+    const cityCode = getCityCode(feature.properties);
+    const prefCode = getFeaturePrefCode(feature);
+    const code = mapMode === "pref" ? prefCode : cityCode;
     const colored = colorState[code];
 
     if (colored) {
@@ -903,7 +1002,8 @@ function handleCityClick(code) {
     else delete colorState[code];
 
     geojsonLayer.eachLayer(layer => {
-        if (getCityCode(layer.feature.properties) === code) {
+        const layerCode = mapMode === "pref" ? getFeaturePrefCode(layer.feature) : getCityCode(layer.feature.properties);
+        if (layerCode === code) {
             layer.setStyle(featureStyle(layer.feature));
         }
     });
@@ -912,13 +1012,13 @@ function handleCityClick(code) {
     updateUIStats();
 }
 
-// リスト削除用処理
 function removeCityColor(code) {
     delete colorState[code];
 
     if (geojsonLayer) {
         geojsonLayer.eachLayer(layer => {
-            if (getCityCode(layer.feature.properties) === code) {
+            const layerCode = mapMode === "pref" ? getFeaturePrefCode(layer.feature) : getCityCode(layer.feature.properties);
+            if (layerCode === code) {
                 layer.setStyle(featureStyle(layer.feature));
             }
         });
@@ -933,7 +1033,7 @@ function fillAllCurrentPref() {
     refreshLayerStyles();
     saveToLocalStorage();
     updateUIStats();
-    showToast(`${getSelectedPrefLabel(selectedPrefCodes)}を表示エリア全塗りしました`);
+    showToast(`${mapMode === "pref" ? "全国の都道府県" : getSelectedPrefLabel(selectedPrefCodes)}を表示エリア全塗りしました`);
 }
 
 function clearAllCurrentPref() {
@@ -941,7 +1041,7 @@ function clearAllCurrentPref() {
     refreshLayerStyles();
     saveToLocalStorage();
     updateUIStats();
-    showToast(`${getSelectedPrefLabel(selectedPrefCodes)}の色塗りをクリアしました`);
+    showToast(`${mapMode === "pref" ? "全国の都道府県" : getSelectedPrefLabel(selectedPrefCodes)}の色塗りをクリアしました`);
 }
 
 function refreshLayerStyles() {
@@ -956,9 +1056,15 @@ function fitToCurrentBounds() {
 }
 
 function updateUIStats() {
-    document.getElementById("currentPrefName").textContent = getSelectedPrefLabel(selectedPrefCodes);
+    document.getElementById("currentPrefName").textContent = mapMode === "pref" ? "全国（都道府県版）" : getSelectedPrefLabel(selectedPrefCodes);
 
-    const allCodes = Object.keys(currentCityMap);
+    let allCodes = [];
+    if (mapMode === "pref") {
+        allCodes = PREFECTURES.map(p => p.code);
+    } else {
+        allCodes = Object.keys(currentCityMap);
+    }
+
     const total = allCodes.length;
     const coloredCodes = allCodes.filter(code => colorState[code]);
     const count = coloredCodes.length;
@@ -972,22 +1078,22 @@ function updateUIStats() {
 
     const listEl = document.getElementById("coloredCityList");
     if (count === 0) {
-        listEl.innerHTML = `<div class="text-slate-400 text-center py-6 text-xs">まだ塗りつぶされた市区町村はありません</div>`;
+        listEl.innerHTML = `<div class="text-slate-400 text-center py-6 text-xs">まだ塗りつぶされた地域はありません</div>`;
         return;
     }
 
-    const isMultiOrNational = selectedPrefCodes.includes("ALL") || selectedPrefCodes.length > 1;
+    const isMultiOrNational = mapMode === "city" && (selectedPrefCodes.includes("ALL") || selectedPrefCodes.length > 1);
 
-    // ★ data-delete-code 属性と pointer-events-none を使用した安全なHTML生成
     listEl.innerHTML = coloredCodes.map(code => {
-        const city = currentCityMap[code];
+        const name = mapMode === "pref" ? getPrefName(code) : (currentCityMap[code]?.name || code);
+        const prefName = mapMode === "pref" ? "" : currentCityMap[code]?.prefName;
         const color = colorState[code];
         return `
             <div class="flex items-center justify-between p-2 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-200 transition">
                 <div class="flex items-center gap-2 overflow-hidden">
                     <span class="w-3.5 h-3.5 rounded-full border border-slate-300 shadow-xs shrink-0" style="background-color: ${color}"></span>
                     <span class="font-medium text-slate-700 truncate">
-                        ${isMultiOrNational && city.prefName ? `<span class="text-slate-400 text-[10px] mr-1">[${city.prefName}]</span>` : ''}${city.name}
+                        ${isMultiOrNational && prefName ? `<span class="text-slate-400 text-[10px] mr-1">[${prefName}]</span>` : ''}${name}
                     </span>
                 </div>
                 <button type="button" data-delete-code="${code}" class="text-slate-400 hover:text-rose-500 p-1 transition shrink-0 cursor-pointer" title="消去">
@@ -1066,6 +1172,7 @@ function exportStateJson() {
     const exportData = {
         version: "1.0",
         exportedAt: new Date().toISOString(),
+        mapMode: mapMode,
         colorState: colorState,
         defaultLandColor: defaultLandColor,
         enableLandOpacity: enableLandOpacity,
@@ -1095,6 +1202,7 @@ function importStateJson(e) {
         try {
             const data = JSON.parse(event.target.result);
             if (data && data.colorState) {
+                if (data.mapMode) mapMode = data.mapMode;
                 colorState = { ...colorState, ...data.colorState };
                 if (data.defaultLandColor) defaultLandColor = data.defaultLandColor;
                 if (data.enableLandOpacity !== undefined) enableLandOpacity = data.enableLandOpacity;
@@ -1104,6 +1212,7 @@ function importStateJson(e) {
                 if (data.selectedTileType) selectedTileType = data.selectedTileType;
                 if (data.customColors) customColors = data.customColors;
 
+                updateModeUI();
                 initBoundaryUIValues();
                 renderCustomPalette();
                 updateTileLayer(selectedTileType);
@@ -1161,7 +1270,7 @@ function saveCanvasAsImage(canvas) {
         const renderMapLayer = () => {
             ctx.drawImage(canvas, margin, margin);
             const link = document.createElement("a");
-            const labelName = getSelectedPrefLabel(selectedPrefCodes);
+            const labelName = mapMode === "pref" ? "都道府県版" : getSelectedPrefLabel(selectedPrefCodes);
             link.download = `japan_map_${labelName}_${new Date().toISOString().slice(0,10)}.png`;
             link.href = finalCanvas.toDataURL("image/png");
             link.click();
@@ -1246,9 +1355,10 @@ function exportMapSvg() {
 
             exportFeatures.forEach(feature => {
                 const props = feature.properties;
-                const code = getCityCode(props);
-                const name = getCityName(props);
-                const prefCode = props.N03_007 ? String(props.N03_007).padStart(5, "0").substring(0, 2) : "";
+                const cityCode = getCityCode(props);
+                const prefCode = getFeaturePrefCode(feature);
+                const code = mapMode === "pref" ? prefCode : cityCode;
+                const name = mapMode === "pref" ? getPrefName(prefCode) : getCityName(props);
                 const prefName = props.N03_001 || getPrefName(prefCode) || "都道府県";
                 const colored = Boolean(colorState[code]);
                 const fillColor = colored ? colorState[code] : defaultLandColor;
@@ -1259,7 +1369,9 @@ function exportMapSvg() {
             });
 
             let boundarySvgHtml = "";
-            ["ward", "county", "city", "pref", "coast"].forEach(type => {
+            const boundaryTypes = mapMode === "pref" ? ["pref", "coast"] : ["ward", "county", "city", "pref", "coast"];
+
+            boundaryTypes.forEach(type => {
                 const setting = boundarySettings[type];
                 const geojson = boundaryGeoJsons[type];
                 if (setting && setting.show && geojson && geojson.geometry.coordinates.length > 0) {
@@ -1291,7 +1403,8 @@ ${boundarySvgHtml}  </g>
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            a.download = `japan_map_${getSelectedPrefLabel(selectedPrefCodes)}_${new Date().toISOString().slice(0,10)}.svg`;
+            const labelName = mapMode === "pref" ? "都道府県版" : getSelectedPrefLabel(selectedPrefCodes);
+            a.download = `japan_map_${labelName}_${new Date().toISOString().slice(0,10)}.svg`;
             a.click();
             URL.revokeObjectURL(url);
 
