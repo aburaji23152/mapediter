@@ -27,16 +27,20 @@ const PREFECTURES = [
     { code: "46", name: "鹿児島県" }, { code: "47", name: "沖縄県" }
 ];
 
-// ★ 基本パレット（淡色系 / パステルカラー 12色）
-const PASTEL_COLORS = [
+// ★ 基本パレット（淡い色 12色 ＋ 従来の色 12色 ＝ 全24色）
+const BASE_COLORS = [
+    // 淡い色 (12色)
     "#bfdbfe", "#fca5a5", "#86efac", "#fde047", "#d8b4fe", "#f9a8d4",
-    "#a5f3fc", "#fdba74", "#bef264", "#c7d2fe", "#99f6e4", "#cbd5e1"
-];
-
-// ★ カスタムカラー（初期値 12色）
-let customColors = [
+    "#a5f3fc", "#fdba74", "#bef264", "#c7d2fe", "#99f6e4", "#cbd5e1",
+    // 従来の色 (12色)
     "#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899",
     "#06b6d4", "#f97316", "#84cc16", "#6366f1", "#14b8a6", "#64748b"
+];
+
+// ★ カスタムカラー（個別に編集可能な12色）
+let customColors = [
+    "#e0e7ff", "#ffe4e6", "#dcfce7", "#fef9c3", "#f3e8ff", "#fce7f3",
+    "#cffafe", "#ffedd5", "#ecfccb", "#e0e7ff", "#ccfbf1", "#f1f5f9"
 ];
 
 const TILE_LAYERS = {
@@ -56,7 +60,7 @@ let currentGeoJsonData = null;
 let selectedPrefCodes = ["ALL"];
 let tempSelectedCodes = ["ALL"];
 let activeTool = "paint";
-let selectedColor = "#bfdbfe";
+let selectedColor = BASE_COLORS[0];
 
 let colorState = {};
 let currentCityMap = {};
@@ -470,22 +474,16 @@ function getSelectedPrefLabel(codes) {
     return codes.length <= 2 ? names.join("・") : `${names[0]}・${names[1]} 外${codes.length - 2}県`;
 }
 
-// ★ カラーパレットの初期化・描画処理（基本淡色12色 ＋ カスタム12色）
+// ★ カラーパレットの初期化・描画処理（基本24色 ＋ カスタム個別選択12色）
 function initColorPalettes() {
     renderBasePalette();
     renderCustomPalette();
-
-    document.getElementById("customColorPicker").addEventListener("input", (e) => {
-        const color = e.target.value;
-        addCustomColor(color);
-        setColor(color, false);
-    });
 }
 
 function renderBasePalette() {
     const paletteEl = document.getElementById("colorPalette");
-    paletteEl.innerHTML = PASTEL_COLORS.map((color) => `
-        <button type="button" data-color="${color}" class="color-swatch w-7 h-7 rounded-full border border-slate-300 shadow-sm transition hover:scale-110 flex items-center justify-center ${color === selectedColor ? 'ring-2 ring-indigo-600 ring-offset-2' : ''}" style="background-color: ${color}">
+    paletteEl.innerHTML = BASE_COLORS.map((color) => `
+        <button type="button" data-color="${color}" class="color-swatch w-7 h-7 rounded-full border border-slate-300 shadow-sm transition hover:scale-110 flex items-center justify-center ${color.toLowerCase() === selectedColor.toLowerCase() ? 'ring-2 ring-indigo-600 ring-offset-2' : ''}" style="background-color: ${color}">
         </button>
     `).join("");
 
@@ -497,30 +495,37 @@ function renderBasePalette() {
 function renderCustomPalette() {
     const customPaletteEl = document.getElementById("customColorPalette");
     customPaletteEl.innerHTML = customColors.map((color, index) => `
-        <button type="button" data-color="${color}" data-index="${index}" class="custom-swatch w-7 h-7 rounded-full border border-slate-300 shadow-sm transition hover:scale-110 flex items-center justify-center ${color === selectedColor ? 'ring-2 ring-indigo-600 ring-offset-2' : ''}" style="background-color: ${color}">
-        </button>
+        <label data-index="${index}" data-color="${color}" class="custom-swatch relative w-7 h-7 rounded-full border border-slate-300 shadow-sm transition hover:scale-110 flex items-center justify-center cursor-pointer ${color.toLowerCase() === selectedColor.toLowerCase() ? 'ring-2 ring-indigo-600 ring-offset-2' : ''}" style="background-color: ${color}">
+            <input type="color" value="${color}" data-index="${index}" class="custom-color-input opacity-0 absolute inset-0 w-full h-full cursor-pointer">
+        </label>
     `).join("");
 
-    customPaletteEl.querySelectorAll(".custom-swatch").forEach(btn => {
-        btn.addEventListener("click", () => setColor(btn.getAttribute("data-color")));
+    customPaletteEl.querySelectorAll(".custom-color-input").forEach(input => {
+        // 色変更時のリアルタイム反映
+        input.addEventListener("input", (e) => {
+            const idx = parseInt(e.target.getAttribute("data-index"), 10);
+            const newColor = e.target.value;
+            customColors[idx] = newColor;
+            const label = e.target.parentElement;
+            label.style.backgroundColor = newColor;
+            label.setAttribute("data-color", newColor);
+            setColor(newColor);
+            saveToLocalStorage();
+        });
+        // クリック時（選択）
+        input.addEventListener("click", (e) => {
+            const idx = parseInt(e.target.getAttribute("data-index"), 10);
+            setColor(customColors[idx]);
+        });
     });
 }
 
-function addCustomColor(color) {
-    // 重複を削除して先頭に追加、12色に収める
-    customColors = [color, ...customColors.filter(c => c.toLowerCase() !== color.toLowerCase())].slice(0, 12);
-    renderCustomPalette();
-    saveToLocalStorage();
-}
-
-function setColor(color, isPickerSync = true) {
+function setColor(color) {
     selectedColor = color;
-    if (isPickerSync) {
-        document.getElementById("customColorPicker").value = color;
-    }
     
     document.querySelectorAll(".color-swatch, .custom-swatch").forEach(btn => {
-        if (btn.getAttribute("data-color").toLowerCase() === color.toLowerCase()) {
+        const btnColor = btn.getAttribute("data-color");
+        if (btnColor && btnColor.toLowerCase() === color.toLowerCase()) {
             btn.classList.add("ring-2", "ring-indigo-600", "ring-offset-2");
         } else {
             btn.classList.remove("ring-2", "ring-indigo-600", "ring-offset-2");
@@ -861,7 +866,6 @@ function renderBoundaryLayers() {
     });
 }
 
-// ★ 陸地スタイルの決定（ペイント箇所は常に不透明 1.0 / 未塗り箇所のみ透過適用）
 function featureStyle(feature) {
     const code = getCityCode(feature.properties);
     const colored = colorState[code];
@@ -869,11 +873,11 @@ function featureStyle(feature) {
     if (colored) {
         return {
             fillColor: colored,
-            fillOpacity: 1.0, // ペイント部分は常に完全不透明
+            fillOpacity: 1.0,
             stroke: false
         };
     } else {
-        const fillOpacity = enableLandOpacity ? defaultLandOpacity : 1.0; // 未塗り陸地のみ設定に従う
+        const fillOpacity = enableLandOpacity ? defaultLandOpacity : 1.0;
         return {
             fillColor: defaultLandColor,
             fillOpacity: fillOpacity,
