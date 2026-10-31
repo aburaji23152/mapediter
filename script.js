@@ -27,6 +27,9 @@ const PREFECTURES = [
     { code: "46", name: "鹿児島県" }, { code: "47", name: "沖縄県" }
 ];
 
+// 地理院地図 ズーム10相当の解像度スケール（256 * 2^10 / 2π）
+const ZOOM_10_SCALE = (256 * Math.pow(2, 10)) / (2 * Math.PI);
+
 // 基本パレット（淡い色 12色 ＋ 従来の色 12色 ＝ 全24色）
 const BASE_COLORS = [
     "#bfdbfe", "#fca5a5", "#86efac", "#fde047", "#d8b4fe", "#f9a8d4",
@@ -702,18 +705,18 @@ function bindEvents() {
         });
     }
 
-    // ★ サンプルデータ適用モーダルのイベント設定
-    document.getElementById("btnApplySampleData").addEventListener("click", () => {
-        document.getElementById("sampleConfirmModal").classList.remove("hidden");
+    // サンプルデータ適用モーダルのイベント設定
+    document.getElementById("btnApplySampleData")?.addEventListener("click", () => {
+        document.getElementById("sampleConfirmModal")?.classList.remove("hidden");
         lucide.createIcons();
     });
 
-    document.getElementById("btnCancelSampleConfirm").addEventListener("click", () => {
-        document.getElementById("sampleConfirmModal").classList.add("hidden");
+    document.getElementById("btnCancelSampleConfirm")?.addEventListener("click", () => {
+        document.getElementById("sampleConfirmModal")?.classList.add("hidden");
     });
 
-    document.getElementById("btnApplySampleConfirm").addEventListener("click", () => {
-        document.getElementById("sampleConfirmModal").classList.add("hidden");
+    document.getElementById("btnApplySampleConfirm")?.addEventListener("click", () => {
+        document.getElementById("sampleConfirmModal")?.classList.add("hidden");
         applySampleCategoryColors();
     });
 
@@ -1054,11 +1057,9 @@ function removeCityColor(code) {
     updateUIStats();
 }
 
-// ★ 自治体区分サンプルカラーの自動適用処理
 function applySampleCategoryColors() {
     if (!geojsonLayer) return;
 
-    // 自治体区分用サンプルカラー（すべて淡い色）
     const SAMPLE_COLORS = {
         tokubetsuku: "#fecaca", // 特別区：淡い赤
         seireishi: "#fbcfe8",   // 政令市：淡いピンク
@@ -1078,26 +1079,17 @@ function applySampleCategoryColors() {
         const n03_004 = props.N03_004 ? String(props.N03_004) : "";
         const n03_005 = props.N03_005 ? String(props.N03_005) : "";
 
-        let assignedColor = SAMPLE_COLORS.shi; // デフォルト：市
+        let assignedColor = SAMPLE_COLORS.shi;
 
-        // 1. 特別区 (東京23区)
         if (prefCode === "13" && (n03_004.endsWith("区") && !n03_003.endsWith("市"))) {
             assignedColor = SAMPLE_COLORS.tokubetsuku;
-        } 
-        // 2. 政令指定都市（区・市）
-        else if (n03_005 !== "" || (n03_003.endsWith("市") && n03_004.endsWith("区"))) {
+        } else if (n03_005 !== "" || (n03_003.endsWith("市") && n03_004.endsWith("区"))) {
             assignedColor = SAMPLE_COLORS.seireishi;
-        } 
-        // 3. 町
-        else if (n03_004.endsWith("町")) {
+        } else if (n03_004.endsWith("町")) {
             assignedColor = SAMPLE_COLORS.cho;
-        } 
-        // 4. 村
-        else if (n03_004.endsWith("村")) {
+        } else if (n03_004.endsWith("村")) {
             assignedColor = SAMPLE_COLORS.son;
-        } 
-        // 5. 市
-        else if (n03_004.endsWith("市")) {
+        } else if (n03_004.endsWith("市")) {
             assignedColor = SAMPLE_COLORS.shi;
         }
 
@@ -1311,169 +1303,97 @@ function importStateJson(e) {
     e.target.value = "";
 }
 
-function exportMapImage() {
-    showLoading(true, "高解像度画像を生成中...");
-    if (!map || !geojsonLayer) {
-        showLoading(false);
-        return;
+// ★ 地理院地図 ズーム10相当の解像度でSVG文字列を生成する共通関数
+function generateMapSvgString(scale) {
+    if (!currentGeoJsonData || !currentGeoJsonData.features) return null;
+
+    const exportFeatures = currentGeoJsonData.features.filter(feature => {
+        const code = getCityCode(feature.properties);
+        const islandPrefCode = isIslandMunicipality(code, feature.properties);
+        return !(islandPrefCode && includeIslands[islandPrefCode] === false);
+    });
+
+    if (exportFeatures.length === 0) return null;
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+
+    function processCoords(coords) {
+        if (typeof coords[0] === 'number') {
+            const [lon, lat] = coords;
+            const [mx, my] = geoToMercator(lon, lat);
+            if (mx < minX) minX = mx;
+            if (mx > maxX) maxX = mx;
+            if (my < minY) minY = my;
+            if (my > maxY) maxY = my;
+        } else coords.forEach(processCoords);
     }
-    map.invalidateSize();
-    const bounds = geojsonLayer.getBounds();
-    if (bounds.isValid()) map.fitBounds(bounds, { padding: [50, 50], animate: false });
 
-    setTimeout(() => {
-        leafletImage(map, function(err, canvas) {
-            if (err || !canvas) {
-                const mapContainer = document.getElementById("map");
-                html2canvas(mapContainer, { useCORS: true, allowTaint: true, logging: false })
-                    .then(fallbackCanvas => saveCanvasAsImage(fallbackCanvas))
-                    .catch(() => {
-                        showLoading(false);
-                        showToast("画像の生成に失敗しました", "error");
-                    });
-                return;
-            }
-            saveCanvasAsImage(canvas);
-        });
-    }, 300);
-}
+    exportFeatures.forEach(f => {
+        if (f.geometry && f.geometry.coordinates) processCoords(f.geometry.coordinates);
+    });
 
-function saveCanvasAsImage(canvas) {
-    try {
-        const margin = 40;
-        const finalCanvas = document.createElement("canvas");
-        finalCanvas.width = canvas.width + margin * 2;
-        finalCanvas.height = canvas.height + margin * 2;
-        const ctx = finalCanvas.getContext("2d");
+    const padding = 40;
+    const mercWidth = maxX - minX, mercHeight = maxY - minY;
+    const viewBoxWidth = Math.round(mercWidth * scale + 2 * padding);
+    const viewBoxHeight = Math.round(mercHeight * scale + 2 * padding);
 
-        ctx.fillStyle = mapBgColor;
-        ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+    function project([lon, lat]) {
+        const [mx, my] = geoToMercator(lon, lat);
+        const sx = (padding + (mx - minX) * scale).toFixed(2);
+        const sy = (padding + (maxY - my) * scale).toFixed(2);
+        return `${sx},${sy}`;
+    }
 
-        const renderMapLayer = () => {
-            ctx.drawImage(canvas, margin, margin);
-            const link = document.createElement("a");
-            const labelName = mapMode === "pref" ? "都道府県版" : getSelectedPrefLabel(selectedPrefCodes);
-            link.download = `japan_map_${labelName}_${new Date().toISOString().slice(0,10)}.png`;
-            link.href = finalCanvas.toDataURL("image/png");
-            link.click();
-            showLoading(false);
-            showToast("地図をPNG画像として保存しました");
-        };
+    function ringToD(ring) { return "M " + ring.map(project).join(" L ") + " Z"; }
+    function geomToD(geom) {
+        if (geom.type === "Polygon") return geom.coordinates.map(ringToD).join(" ");
+        else if (geom.type === "MultiPolygon") return geom.coordinates.map(poly => poly.map(ringToD).join(" ")).join(" ");
+        return "";
+    }
 
-        if (bgImageDataUrl) {
-            const bgImg = new Image();
-            bgImg.onload = () => {
-                ctx.drawImage(bgImg, 0, 0, finalCanvas.width, finalCanvas.height);
-                renderMapLayer();
-            };
-            bgImg.onerror = () => renderMapLayer();
-            bgImg.src = bgImageDataUrl;
-        } else {
-            renderMapLayer();
+    function lineToD(lines) { return lines.map(line => `M ${project(line[0])} L ${project(line[1])}`).join(" "); }
+
+    let pathsHtml = "";
+
+    exportFeatures.forEach(feature => {
+        const props = feature.properties;
+        const cityCode = getCityCode(props);
+        const prefCode = getFeaturePrefCode(feature);
+        const code = mapMode === "pref" ? prefCode : cityCode;
+        const name = mapMode === "pref" ? getPrefName(prefCode) : getCityName(props);
+        const prefName = props.N03_001 || getPrefName(prefCode) || "都道府県";
+        const colored = Boolean(colorState[code]);
+        const fillColor = colored ? colorState[code] : defaultLandColor;
+        const fillOpacity = colored ? 1.0 : (enableLandOpacity ? defaultLandOpacity : 1.0);
+        const d = geomToD(feature.geometry);
+
+        const strokeAttr = mapMode === "pref" 
+            ? `stroke="${fillColor}" stroke-width="1.5" stroke-opacity="${fillOpacity}" stroke-linejoin="round" stroke-linecap="round"`
+            : `stroke="none"`;
+
+        if (d) pathsHtml += `    <path d="${d}" fill="${fillColor}" fill-opacity="${fillOpacity}" ${strokeAttr} data-code="${code}" data-name="${name}" data-pref="${prefName}"><title>${prefName} ${name}</title></path>\n`;
+    });
+
+    let boundarySvgHtml = "";
+    const boundaryTypes = mapMode === "pref" ? ["pref", "coast"] : ["ward", "county", "city", "pref", "coast"];
+
+    boundaryTypes.forEach(type => {
+        const setting = boundarySettings[type];
+        const geojson = boundaryGeoJsons[type];
+        if (setting && setting.show && geojson && geojson.geometry.coordinates.length > 0) {
+            let dashAttr = "";
+            if (setting.style === "dashed") dashAttr = 'stroke-dasharray="6,4"';
+            else if (setting.style === "dotted") dashAttr = 'stroke-dasharray="2,3"';
+
+            const d = lineToD(geojson.geometry.coordinates);
+            if (d) boundarySvgHtml += `    <path d="${d}" fill="none" stroke="${setting.color}" stroke-width="${setting.weight}" ${dashAttr} stroke-linecap="round" stroke-linejoin="round"/>\n`;
         }
-    } catch (err) {
-        console.error(err);
-        showLoading(false);
-        showToast("画像の保存処理に失敗しました", "error");
-    }
-}
+    });
 
-function exportMapSvg() {
-    if (!currentGeoJsonData || !currentGeoJsonData.features) {
-        showToast("データが読み込まれていません", "error");
-        return;
-    }
+    let bgImageSvg = "";
+    if (bgImageDataUrl) bgImageSvg = `  <image href="${bgImageDataUrl}" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />\n`;
 
-    showLoading(true, "SVGベクター画像を生成中...");
-
-    setTimeout(() => {
-        try {
-            const exportFeatures = currentGeoJsonData.features.filter(feature => {
-                const code = getCityCode(feature.properties);
-                const islandPrefCode = isIslandMunicipality(code, feature.properties);
-                return !(islandPrefCode && includeIslands[islandPrefCode] === false);
-            });
-
-            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-
-            function processCoords(coords) {
-                if (typeof coords[0] === 'number') {
-                    const [lon, lat] = coords;
-                    const [mx, my] = geoToMercator(lon, lat);
-                    if (mx < minX) minX = mx;
-                    if (mx > maxX) maxX = mx;
-                    if (my < minY) minY = my;
-                    if (my > maxY) maxY = my;
-                } else coords.forEach(processCoords);
-            }
-
-            exportFeatures.forEach(f => {
-                if (f.geometry && f.geometry.coordinates) processCoords(f.geometry.coordinates);
-            });
-
-            const viewBoxWidth = 1200;
-            const padding = 20;
-            const mercWidth = maxX - minX, mercHeight = maxY - minY;
-            const scale = (viewBoxWidth - 2 * padding) / mercWidth;
-            const viewBoxHeight = Math.round(mercHeight * scale + 2 * padding);
-
-            function project([lon, lat]) {
-                const [mx, my] = geoToMercator(lon, lat);
-                const sx = (padding + (mx - minX) * scale).toFixed(2);
-                const sy = (padding + (maxY - my) * scale).toFixed(2);
-                return `${sx},${sy}`;
-            }
-
-            function ringToD(ring) { return "M " + ring.map(project).join(" L ") + " Z"; }
-            function geomToD(geom) {
-                if (geom.type === "Polygon") return geom.coordinates.map(ringToD).join(" ");
-                else if (geom.type === "MultiPolygon") return geom.coordinates.map(poly => poly.map(ringToD).join(" ")).join(" ");
-                return "";
-            }
-
-            function lineToD(lines) { return lines.map(line => `M ${project(line[0])} L ${project(line[1])}`).join(" "); }
-
-            let pathsHtml = "";
-
-            exportFeatures.forEach(feature => {
-                const props = feature.properties;
-                const cityCode = getCityCode(props);
-                const prefCode = getFeaturePrefCode(feature);
-                const code = mapMode === "pref" ? prefCode : cityCode;
-                const name = mapMode === "pref" ? getPrefName(prefCode) : getCityName(props);
-                const prefName = props.N03_001 || getPrefName(prefCode) || "都道府県";
-                const colored = Boolean(colorState[code]);
-                const fillColor = colored ? colorState[code] : defaultLandColor;
-                const fillOpacity = colored ? 1.0 : (enableLandOpacity ? defaultLandOpacity : 1.0);
-                const d = geomToD(feature.geometry);
-
-                const strokeAttr = mapMode === "pref" 
-                    ? `stroke="${fillColor}" stroke-width="1.5" stroke-opacity="${fillOpacity}" stroke-linejoin="round" stroke-linecap="round"`
-                    : `stroke="none"`;
-
-                if (d) pathsHtml += `    <path d="${d}" fill="${fillColor}" fill-opacity="${fillOpacity}" ${strokeAttr} data-code="${code}" data-name="${name}" data-pref="${prefName}"><title>${prefName} ${name}</title></path>\n`;
-            });
-
-            let boundarySvgHtml = "";
-            const boundaryTypes = mapMode === "pref" ? ["pref", "coast"] : ["ward", "county", "city", "pref", "coast"];
-
-            boundaryTypes.forEach(type => {
-                const setting = boundarySettings[type];
-                const geojson = boundaryGeoJsons[type];
-                if (setting && setting.show && geojson && geojson.geometry.coordinates.length > 0) {
-                    let dashAttr = "";
-                    if (setting.style === "dashed") dashAttr = 'stroke-dasharray="6,4"';
-                    else if (setting.style === "dotted") dashAttr = 'stroke-dasharray="2,3"';
-
-                    const d = lineToD(geojson.geometry.coordinates);
-                    if (d) boundarySvgHtml += `    <path d="${d}" fill="none" stroke="${setting.color}" stroke-width="${setting.weight}" ${dashAttr} stroke-linecap="round" stroke-linejoin="round"/>\n`;
-                }
-            });
-
-            let bgImageSvg = "";
-            if (bgImageDataUrl) bgImageSvg = `  <image href="${bgImageDataUrl}" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />\n`;
-
-            const svgString = `<?xml version="1.0" encoding="UTF-8"?>
+    return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${viewBoxWidth} ${viewBoxHeight}" width="${viewBoxWidth}" height="${viewBoxHeight}">
   <style>
     path { transition: fill 0.2s; }
@@ -1484,18 +1404,83 @@ ${pathsHtml}  </g>
   <g id="boundaries">
 ${boundarySvgHtml}  </g>
 </svg>`;
+}
+
+// ★ 地理院地図 ズーム10の解像度でPNG画像をエクスポート
+function exportMapImage() {
+    showLoading(true, "ズーム10解像度で高精細PNG画像を生成中...");
+
+    setTimeout(() => {
+        try {
+            const svgString = generateMapSvgString(ZOOM_10_SCALE);
+            if (!svgString) {
+                showLoading(false);
+                showToast("画像の生成に失敗しました", "error");
+                return;
+            }
+
+            const img = new Image();
+            const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+
+            img.onload = () => {
+                const canvas = document.createElement("canvas");
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(img, 0, 0);
+
+                const link = document.createElement("a");
+                const labelName = mapMode === "pref" ? "都道府県版" : getSelectedPrefLabel(selectedPrefCodes);
+                link.download = `japan_map_${labelName}_z10_${new Date().toISOString().slice(0,10)}.png`;
+                link.href = canvas.toDataURL("image/png");
+                link.click();
+
+                URL.revokeObjectURL(url);
+                showLoading(false);
+                showToast("ズーム10解像度のPNG画像を保存しました");
+            };
+
+            img.onerror = (err) => {
+                console.error(err);
+                URL.revokeObjectURL(url);
+                showLoading(false);
+                showToast("PNG画像の生成に失敗しました", "error");
+            };
+
+            img.src = url;
+        } catch (err) {
+            console.error(err);
+            showLoading(false);
+            showToast("画像の生成処理に失敗しました", "error");
+        }
+    }, 50);
+}
+
+// ★ 地理院地図 ズーム10の解像度でSVGベクター画像をエクスポート
+function exportMapSvg() {
+    showLoading(true, "ズーム10解像度でSVGベクター画像を生成中...");
+
+    setTimeout(() => {
+        try {
+            const svgString = generateMapSvgString(ZOOM_10_SCALE);
+            if (!svgString) {
+                showLoading(false);
+                showToast("データが読み込まれていません", "error");
+                return;
+            }
 
             const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
             const labelName = mapMode === "pref" ? "都道府県版" : getSelectedPrefLabel(selectedPrefCodes);
-            a.download = `japan_map_${labelName}_${new Date().toISOString().slice(0,10)}.svg`;
+            a.download = `japan_map_${labelName}_z10_${new Date().toISOString().slice(0,10)}.svg`;
             a.click();
             URL.revokeObjectURL(url);
 
             showLoading(false);
-            showToast("SVGベクター画像を保存しました");
+            showToast("ズーム10解像度のSVG画像を保存しました");
         } catch (err) {
             console.error("SVG export error:", err);
             showLoading(false);
