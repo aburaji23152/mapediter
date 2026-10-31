@@ -27,7 +27,6 @@ const PREFECTURES = [
     { code: "46", name: "鹿児島県" }, { code: "47", name: "沖縄県" }
 ];
 
-// 基本パレット
 const BASE_COLORS = [
     "#bfdbfe", "#fca5a5", "#86efac", "#fde047", "#d8b4fe", "#f9a8d4",
     "#a5f3fc", "#fdba74", "#bef264", "#c7d2fe", "#99f6e4", "#cbd5e1",
@@ -35,7 +34,6 @@ const BASE_COLORS = [
     "#06b6d4", "#f97316", "#84cc16", "#6366f1", "#14b8a6", "#64748b"
 ];
 
-// カスタムカラー
 let customColors = [
     "#e0e7ff", "#ffe4e6", "#dcfce7", "#fef9c3", "#f3e8ff", "#fce7f3",
     "#cffafe", "#ffedd5", "#ecfccb", "#e0e7ff", "#ccfbf1", "#f1f5f9"
@@ -49,7 +47,7 @@ const TILE_LAYERS = {
 const LANDLOCKED_PREFS = new Set(["09", "10", "11", "19", "20", "21", "25", "29"]);
 
 // --- アプリケーション状態 ---
-let mapMode = "city"; // "city" | "pref"
+let mapMode = "city"; 
 let pendingMapMode = null;
 
 let map = null;
@@ -66,30 +64,30 @@ let selectedColor = BASE_COLORS[0];
 let colorState = {};
 let currentCityMap = {};
 let nationalFeaturesCache = null;
+let railwayGeoJsonCache = null;
 
-// 背景・陸地設定
 let defaultLandColor = "#ffffff";
 let enableLandOpacity = false;
 let defaultLandOpacity = 0.45;
 let bgImageDataUrl = null;
 let mapBgColor = "#f1f5f9";
 
-// 境界線カスタマイズ状態
+// 境界線 ＆ 鉄道カスタマイズ状態
 let boundarySettings = {
     coast: { show: true, color: "#1e293b", weight: 2.0, style: "solid" },
     pref: { show: true, color: "#0f172a", weight: 2.5, style: "solid" },
     city: { show: true, color: "#475569", weight: 1.0, style: "solid" },
     county: { show: true, color: "#64748b", weight: 1.0, style: "dotted" },
-    ward: { show: true, color: "#64748b", weight: 1.0, style: "dashed" }
+    ward: { show: true, color: "#64748b", weight: 1.0, style: "dashed" },
+    railway: { show: false, color: "#334155", weight: 1.5, style: "solid" }
 };
 
-let boundaryGeoJsons = { coast: null, pref: null, city: null, county: null, ward: null };
-let boundaryLayers = { coast: null, pref: null, city: null, county: null, ward: null };
+let boundaryGeoJsons = { coast: null, pref: null, city: null, county: null, ward: null, railway: null };
+let boundaryLayers = { coast: null, pref: null, city: null, county: null, ward: null, railway: null };
 
 let includeIslands = { "13": true, "46": true, "47": true };
 let tempIncludeIslands = { ...includeIslands };
 
-// LocalStorage キー
 const STORAGE_KEY_MAP_MODE = "japan_map_mode_v1";
 const STORAGE_KEY_COLOR_STATE = "japan_map_color_state_v1";
 const STORAGE_KEY_SELECTED_PREFS = "japan_map_selected_prefs_v1";
@@ -104,7 +102,6 @@ const STORAGE_KEY_SHOW_BASEMAP = "japan_map_show_basemap_v1";
 const STORAGE_KEY_TILE_TYPE = "japan_map_tile_type_v1";
 const STORAGE_KEY_CUSTOM_COLORS = "japan_map_custom_colors_v1";
 
-// --- 初期化処理 ---
 window.onload = function() {
     lucide.createIcons();
     initPwaSupport();
@@ -129,7 +126,6 @@ function initPwaSupport() {
             registration.addEventListener("updatefound", () => {
                 const newWorker = registration.installing;
                 if (!newWorker) return;
-
                 newWorker.addEventListener("statechange", () => {
                     if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
                         showToast("アプリが最新バージョンに更新されました！再読み込みします...");
@@ -174,6 +170,19 @@ function getFeaturePrefCode(feature) {
         if (pref) return pref.code;
     }
     return "";
+}
+
+async function fetchRailwayData() {
+    if (railwayGeoJsonCache) return railwayGeoJsonCache;
+    try {
+        const res = await fetch("https://raw.githubusercontent.com/smartnews-smri/japan-topography/main/data/railway/geojson/N02-19_Railway.json");
+        if (!res.ok) throw new Error("鉄道データの読み込み失敗");
+        railwayGeoJsonCache = await res.json();
+        return railwayGeoJsonCache;
+    } catch (e) {
+        console.warn("鉄道 GeoJSON 取得エラー:", e);
+        return null;
+    }
 }
 
 async function loadPrefectureData(codes) {
@@ -291,7 +300,8 @@ function initBoundaryUIValues() {
         { type: "pref", chk: "chkPrefBoundary", color: "colorPrefBoundary", weight: "weightPrefBoundary", style: "stylePrefBoundary" },
         { type: "city", chk: "chkCityBoundary", color: "colorCityBoundary", weight: "weightCityBoundary", style: "styleCityBoundary" },
         { type: "county", chk: "chkCountyBoundary", color: "colorCountyBoundary", weight: "weightCountyBoundary", style: "styleCountyBoundary" },
-        { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", weight: "weightWardBoundary", style: "styleWardBoundary" }
+        { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", weight: "weightWardBoundary", style: "styleWardBoundary" },
+        { type: "railway", chk: "chkRailwayBoundary", color: "colorRailwayBoundary", weight: "weightRailwayBoundary", style: "styleRailwayBoundary" }
     ];
 
     uiMap.forEach(item => {
@@ -785,20 +795,28 @@ function bindEvents() {
         { type: "pref", chk: "chkPrefBoundary", color: "colorPrefBoundary", weight: "weightPrefBoundary", style: "stylePrefBoundary" },
         { type: "city", chk: "chkCityBoundary", color: "colorCityBoundary", weight: "weightCityBoundary", style: "styleCityBoundary" },
         { type: "county", chk: "chkCountyBoundary", color: "colorCountyBoundary", weight: "weightCountyBoundary", style: "styleCountyBoundary" },
-        { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", weight: "weightWardBoundary", style: "styleWardBoundary" }
+        { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", weight: "weightWardBoundary", style: "styleWardBoundary" },
+        { type: "railway", chk: "chkRailwayBoundary", color: "colorRailwayBoundary", weight: "weightRailwayBoundary", style: "styleRailwayBoundary" }
     ];
 
     boundaryUIKeys.forEach(item => {
         const chkEl = document.getElementById(item.chk);
         if (!chkEl) return;
 
-        const updateSetting = () => {
+        const updateSetting = async () => {
             boundarySettings[item.type] = {
                 show: chkEl.checked,
                 color: document.getElementById(item.color).value,
                 weight: parseFloat(document.getElementById(item.weight)?.value || 1),
                 style: document.getElementById(item.style)?.value || "solid"
             };
+
+            if (item.type === "railway" && chkEl.checked && !boundaryGeoJsons.railway) {
+                showLoading(true, "鉄道データを取得中...");
+                boundaryGeoJsons.railway = await fetchRailwayData();
+                showLoading(false);
+            }
+
             renderBoundaryLayers();
             saveToLocalStorage();
         };
@@ -948,6 +966,7 @@ function extractBoundaries(topologyFeatures, selectedPrefSet) {
     });
 
     boundaryGeoJsons = {
+        ...boundaryGeoJsons,
         coast: { type: "Feature", geometry: { type: "MultiLineString", coordinates: coastLines } },
         pref: { type: "Feature", geometry: { type: "MultiLineString", coordinates: prefLines } },
         city: { type: "Feature", geometry: { type: "MultiLineString", coordinates: cityLines } },
@@ -957,7 +976,7 @@ function extractBoundaries(topologyFeatures, selectedPrefSet) {
 }
 
 function renderBoundaryLayers() {
-    ["ward", "county", "city", "pref", "coast"].forEach(type => {
+    ["ward", "county", "city", "pref", "coast", "railway"].forEach(type => {
         if (boundaryLayers[type]) {
             map.removeLayer(boundaryLayers[type]);
             boundaryLayers[type] = null;
@@ -970,7 +989,7 @@ function renderBoundaryLayers() {
         const setting = boundarySettings[type];
         const geojson = boundaryGeoJsons[type];
 
-        if (setting && setting.show && geojson && geojson.geometry.coordinates.length > 0) {
+        if (setting && setting.show && geojson) {
             let dashArray = null;
             if (setting.style === "dashed") dashArray = "6, 4";
             else if (setting.style === "dotted") dashArray = "2, 3";
@@ -1294,7 +1313,6 @@ function importStateJson(e) {
     e.target.value = "";
 }
 
-// ★ 地理院ズーム10相当の高解像度SVG文字列の安全生成（上限サイズ制御付き）
 function generateMapSvgString() {
     if (!currentGeoJsonData || !currentGeoJsonData.features) return null;
 
@@ -1323,11 +1341,8 @@ function generateMapSvgString() {
         if (f.geometry && f.geometry.coordinates) processCoords(f.geometry.coordinates);
     });
 
-    // ズーム10相当の解像度（1ラジアンあたり約41,720ピクセル）
     let targetScale = (256 * Math.pow(2, 10)) / (2 * Math.PI);
     const mercWidth = maxX - minX, mercHeight = maxY - minY;
-    
-    // ブラウザの画像/Canvas安全上限（最大8000px）に合わせて自動調整
     const maxDimension = 8000;
     const padding = 40;
     
@@ -1352,7 +1367,27 @@ function generateMapSvgString() {
         return "";
     }
 
-    function lineToD(lines) { return lines.map(line => `M ${project(line[0])} L ${project(line[1])}`).join(" "); }
+    function lineToD(lines) { 
+        if (!lines || lines.length === 0) return "";
+        return lines.map(line => `M ${project(line[0])} L ${project(line[1])}`).join(" "); 
+    }
+
+    function geojsonToD(geojson) {
+        if (!geojson || !geojson.features) return "";
+        let paths = [];
+        geojson.features.forEach(f => {
+            const geom = f.geometry;
+            if (!geom) return;
+            if (geom.type === "LineString") {
+                paths.push("M " + geom.coordinates.map(project).join(" L "));
+            } else if (geom.type === "MultiLineString") {
+                geom.coordinates.forEach(coords => {
+                    paths.push("M " + coords.map(project).join(" L "));
+                });
+            }
+        });
+        return paths.join(" ");
+    }
 
     let pathsHtml = "";
 
@@ -1376,17 +1411,23 @@ function generateMapSvgString() {
     });
 
     let boundarySvgHtml = "";
-    const boundaryTypes = mapMode === "pref" ? ["pref", "coast"] : ["ward", "county", "city", "pref", "coast"];
+    const boundaryTypes = mapMode === "pref" ? ["pref", "coast", "railway"] : ["ward", "county", "city", "pref", "coast", "railway"];
 
     boundaryTypes.forEach(type => {
         const setting = boundarySettings[type];
         const geojson = boundaryGeoJsons[type];
-        if (setting && setting.show && geojson && geojson.geometry.coordinates.length > 0) {
+        if (setting && setting.show && geojson) {
             let dashAttr = "";
             if (setting.style === "dashed") dashAttr = 'stroke-dasharray="6,4"';
             else if (setting.style === "dotted") dashAttr = 'stroke-dasharray="2,3"';
 
-            const d = lineToD(geojson.geometry.coordinates);
+            let d = "";
+            if (type === "railway") {
+                d = geojsonToD(geojson);
+            } else if (geojson.geometry && geojson.geometry.coordinates) {
+                d = lineToD(geojson.geometry.coordinates);
+            }
+
             if (d) boundarySvgHtml += `    <path d="${d}" fill="none" stroke="${setting.color}" stroke-width="${setting.weight}" ${dashAttr} stroke-linecap="round" stroke-linejoin="round"/>\n`;
         }
     });
@@ -1407,7 +1448,6 @@ ${boundarySvgHtml}  </g>
 </svg>`;
 }
 
-// 高精細PNG画像の保存
 function exportMapImage() {
     showLoading(true, "ズーム10相当のPNG画像を生成中...");
 
@@ -1461,7 +1501,6 @@ function exportMapImage() {
     }, 50);
 }
 
-// 高精細SVGベクター画像の保存
 function exportMapSvg() {
     showLoading(true, "ズーム10相当のSVGベクター画像を生成中...");
 
