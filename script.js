@@ -843,7 +843,9 @@ function renderGeoJson(data, topologyFeatures) {
                     
                     if (mapMode === "pref") {
                         geojsonLayer.eachLayer(l => {
-                            if (getFeaturePrefCode(l.feature) === prefCode) l.setStyle({ fillOpacity: opacity });
+                            if (getFeaturePrefCode(l.feature) === prefCode) {
+                                l.setStyle({ fillOpacity: opacity, opacity: opacity });
+                            }
                         });
                     } else {
                         e.target.setStyle({ fillOpacity: opacity });
@@ -951,7 +953,7 @@ function renderBoundaryLayers() {
             boundaryLayers[type] = null;
         }
 
-        // ★ 都道府県モード時は 市区町村境(city) / 郡境(county) / 行政区境(ward) を描画しない
+        // 都道府県モード時は 市区町村境(city) / 郡境(county) / 行政区境(ward) を描画しない
         if (mapMode === "pref" && (type === "city" || type === "county" || type === "ward")) {
             return;
         }
@@ -980,22 +982,27 @@ function renderBoundaryLayers() {
     });
 }
 
+// ★ 都道府県モード時は線の色を面と同色にして隙間（市境の影）を完全に消去
 function featureStyle(feature) {
     const cityCode = getCityCode(feature.properties);
     const prefCode = getFeaturePrefCode(feature);
     const code = mapMode === "pref" ? prefCode : cityCode;
     const colored = colorState[code];
+    const fillColor = colored ? colored : defaultLandColor;
+    const fillOpacity = colored ? 1.0 : (enableLandOpacity ? defaultLandOpacity : 1.0);
 
-    if (colored) {
+    if (mapMode === "pref") {
         return {
-            fillColor: colored,
-            fillOpacity: 1.0,
-            stroke: false
+            fillColor: fillColor,
+            fillOpacity: fillOpacity,
+            stroke: true,
+            color: fillColor,
+            weight: 1.5,
+            opacity: fillOpacity
         };
     } else {
-        const fillOpacity = enableLandOpacity ? defaultLandOpacity : 1.0;
         return {
-            fillColor: defaultLandColor,
+            fillColor: fillColor,
             fillOpacity: fillOpacity,
             stroke: false
         };
@@ -1370,7 +1377,11 @@ function exportMapSvg() {
                 const fillOpacity = colored ? 1.0 : (enableLandOpacity ? defaultLandOpacity : 1.0);
                 const d = geomToD(feature.geometry);
 
-                if (d) pathsHtml += `    <path d="${d}" fill="${fillColor}" fill-opacity="${fillOpacity}" stroke="none" data-code="${code}" data-name="${name}" data-pref="${prefName}"><title>${prefName} ${name}</title></path>\n`;
+                const strokeAttr = mapMode === "pref" 
+                    ? `stroke="${fillColor}" stroke-width="1.5" stroke-opacity="${fillOpacity}" stroke-linejoin="round" stroke-linecap="round"`
+                    : `stroke="none"`;
+
+                if (d) pathsHtml += `    <path d="${d}" fill="${fillColor}" fill-opacity="${fillOpacity}" ${strokeAttr} data-code="${code}" data-name="${name}" data-pref="${prefName}"><title>${prefName} ${name}</title></path>\n`;
             });
 
             let boundarySvgHtml = "";
