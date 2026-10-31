@@ -501,7 +501,6 @@ function renderCustomPalette() {
     `).join("");
 
     customPaletteEl.querySelectorAll(".custom-color-input").forEach(input => {
-        // 色変更時のリアルタイム反映
         input.addEventListener("input", (e) => {
             const idx = parseInt(e.target.getAttribute("data-index"), 10);
             const newColor = e.target.value;
@@ -512,7 +511,6 @@ function renderCustomPalette() {
             setColor(newColor);
             saveToLocalStorage();
         });
-        // クリック時（選択）
         input.addEventListener("click", (e) => {
             const idx = parseInt(e.target.getAttribute("data-index"), 10);
             setColor(customColors[idx]);
@@ -607,6 +605,20 @@ function bindEvents() {
     document.getElementById("btnImportJson").addEventListener("change", importStateJson);
     document.getElementById("btnExportPng").addEventListener("click", exportMapImage);
     document.getElementById("btnExportSvg").addEventListener("click", exportMapSvg);
+
+    // ★ リスト削除ボタンの確定バブリングイベント設定（イベントデリゲーション）
+    const cityListEl = document.getElementById("coloredCityList");
+    if (cityListEl) {
+        cityListEl.addEventListener("click", (e) => {
+            const deleteBtn = e.target.closest("[data-delete-code]");
+            if (deleteBtn) {
+                const code = deleteBtn.getAttribute("data-delete-code");
+                if (code) {
+                    removeCityColor(code);
+                }
+            }
+        });
+    }
 
     document.getElementById("bgColorPicker").addEventListener("input", (e) => {
         applyMapBgColor(e.target.value);
@@ -900,7 +912,7 @@ function handleCityClick(code) {
     updateUIStats();
 }
 
-// ★ リストからの直接削除専用処理
+// リスト削除用処理
 function removeCityColor(code) {
     delete colorState[code];
 
@@ -915,7 +927,6 @@ function removeCityColor(code) {
     saveToLocalStorage();
     updateUIStats();
 }
-window.removeCityColor = removeCityColor;
 
 function fillAllCurrentPref() {
     Object.keys(currentCityMap).forEach(code => colorState[code] = selectedColor);
@@ -967,6 +978,7 @@ function updateUIStats() {
 
     const isMultiOrNational = selectedPrefCodes.includes("ALL") || selectedPrefCodes.length > 1;
 
+    // ★ data-delete-code 属性と pointer-events-none を使用した安全なHTML生成
     listEl.innerHTML = coloredCodes.map(code => {
         const city = currentCityMap[code];
         const color = colorState[code];
@@ -978,8 +990,8 @@ function updateUIStats() {
                         ${isMultiOrNational && city.prefName ? `<span class="text-slate-400 text-[10px] mr-1">[${city.prefName}]</span>` : ''}${city.name}
                     </span>
                 </div>
-                <button onclick="removeCityColor('${code}')" class="text-slate-400 hover:text-rose-500 p-1 transition shrink-0" title="消去">
-                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                <button type="button" data-delete-code="${code}" class="text-slate-400 hover:text-rose-500 p-1 transition shrink-0 cursor-pointer" title="消去">
+                    <i data-lucide="x" class="w-3.5 h-3.5 pointer-events-none"></i>
                 </button>
             </div>
         `;
