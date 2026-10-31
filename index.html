@@ -127,20 +127,19 @@
                     </div>
                 </div>
 
-                <!-- カラーパレット（淡色系 ＆ カスタム12色） -->
+                <!-- カラーパレット（基本24色 ＆ カスタム12色） -->
                 <div>
                     <div class="flex justify-between items-center mb-1.5">
-                        <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">基本パレット (淡色系)</label>
-                        <div class="flex items-center gap-1.5">
-                            <span class="text-xs text-slate-400">ピーカー:</span>
-                            <input type="color" id="customColorPicker" value="#bfdbfe" class="w-6 h-6 rounded-full cursor-pointer border border-slate-300 shadow-sm">
-                        </div>
+                        <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">基本パレット (24色)</label>
                     </div>
-                    <!-- 基本パレット 12色 -->
+                    <!-- 基本パレット 24色 -->
                     <div id="colorPalette" class="grid grid-cols-6 gap-2 mb-3"></div>
 
-                    <!-- カスタムカラー 12色 -->
-                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">カスタムカラー (12色)</label>
+                    <!-- カスタムカラー 12色 (個別にカラーピーカー選択可能) -->
+                    <div class="flex justify-between items-center mb-1.5">
+                        <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">カスタムカラー (12色)</label>
+                        <span class="text-[10px] text-slate-400">クリックで色変更・選択</span>
+                    </div>
                     <div id="customColorPalette" class="grid grid-cols-6 gap-2"></div>
                 </div>
 
