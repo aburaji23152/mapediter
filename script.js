@@ -27,10 +27,7 @@ const PREFECTURES = [
     { code: "46", name: "鹿児島県" }, { code: "47", name: "沖縄県" }
 ];
 
-// 地理院地図 ズーム10相当の解像度スケール（256 * 2^10 / 2π）
-const ZOOM_10_SCALE = (256 * Math.pow(2, 10)) / (2 * Math.PI);
-
-// 基本パレット（淡い色 12色 ＋ 従来の色 12色 ＝ 全24色）
+// 基本パレット
 const BASE_COLORS = [
     "#bfdbfe", "#fca5a5", "#86efac", "#fde047", "#d8b4fe", "#f9a8d4",
     "#a5f3fc", "#fdba74", "#bef264", "#c7d2fe", "#99f6e4", "#cbd5e1",
@@ -38,7 +35,7 @@ const BASE_COLORS = [
     "#06b6d4", "#f97316", "#84cc16", "#6366f1", "#14b8a6", "#64748b"
 ];
 
-// カスタムカラー（個別に編集可能な12色）
+// カスタムカラー
 let customColors = [
     "#e0e7ff", "#ffe4e6", "#dcfce7", "#fef9c3", "#f3e8ff", "#fce7f3",
     "#cffafe", "#ffedd5", "#ecfccb", "#e0e7ff", "#ccfbf1", "#f1f5f9"
@@ -423,11 +420,9 @@ function initPrefModalUI() {
         loadPrefectureData(selectedPrefCodes);
     });
 
-    // モード切り替えボタン
     document.getElementById("btnModeCity").addEventListener("click", () => requestMapModeSwitch("city"));
     document.getElementById("btnModePref").addEventListener("click", () => requestMapModeSwitch("pref"));
 
-    // モード切り替え確認モーダルボタン
     document.getElementById("btnCancelModeConfirm").addEventListener("click", () => {
         document.getElementById("modeConfirmModal").classList.add("hidden");
         pendingMapMode = null;
@@ -436,7 +431,7 @@ function initPrefModalUI() {
     document.getElementById("btnApplyModeConfirm").addEventListener("click", () => {
         if (pendingMapMode) {
             mapMode = pendingMapMode;
-            colorState = {}; // モード変更時にクリア
+            colorState = {};
             pendingMapMode = null;
             document.getElementById("modeConfirmModal").classList.add("hidden");
             updateModeUI();
@@ -559,7 +554,6 @@ function getSelectedPrefLabel(codes) {
     return codes.length <= 2 ? names.join("・") : `${names[0]}・${names[1]} 外${codes.length - 2}県`;
 }
 
-// カラーパレットの初期化
 function initColorPalettes() {
     renderBasePalette();
     renderCustomPalette();
@@ -691,7 +685,6 @@ function bindEvents() {
     document.getElementById("btnExportPng").addEventListener("click", exportMapImage);
     document.getElementById("btnExportSvg").addEventListener("click", exportMapSvg);
 
-    // リスト削除ボタンのイベントデリゲーション
     const cityListEl = document.getElementById("coloredCityList");
     if (cityListEl) {
         cityListEl.addEventListener("click", (e) => {
@@ -705,7 +698,6 @@ function bindEvents() {
         });
     }
 
-    // サンプルデータ適用モーダルのイベント設定
     document.getElementById("btnApplySampleData")?.addEventListener("click", () => {
         document.getElementById("sampleConfirmModal")?.classList.remove("hidden");
         lucide.createIcons();
@@ -971,7 +963,6 @@ function renderBoundaryLayers() {
             boundaryLayers[type] = null;
         }
 
-        // 都道府県モード時は 市区町村境(city) / 郡境(county) / 行政区境(ward) を描画しない
         if (mapMode === "pref" && (type === "city" || type === "county" || type === "ward")) {
             return;
         }
@@ -1061,11 +1052,11 @@ function applySampleCategoryColors() {
     if (!geojsonLayer) return;
 
     const SAMPLE_COLORS = {
-        tokubetsuku: "#fecaca", // 特別区：淡い赤
-        seireishi: "#fbcfe8",   // 政令市：淡いピンク
-        shi: "#fed7aa",         // 市：淡いオレンジ
-        cho: "#bbf7d0",         // 町：淡い緑
-        son: "#bae6fd"          // 村：淡い水色
+        tokubetsuku: "#fecaca",
+        seireishi: "#fbcfe8",
+        shi: "#fed7aa",
+        cho: "#bbf7d0",
+        son: "#bae6fd"
     };
 
     colorState = {};
@@ -1303,8 +1294,8 @@ function importStateJson(e) {
     e.target.value = "";
 }
 
-// ★ 地理院地図 ズーム10相当の解像度でSVG文字列を生成する共通関数
-function generateMapSvgString(scale) {
+// ★ 地理院ズーム10相当の高解像度SVG文字列の安全生成（上限サイズ制御付き）
+function generateMapSvgString() {
     if (!currentGeoJsonData || !currentGeoJsonData.features) return null;
 
     const exportFeatures = currentGeoJsonData.features.filter(feature => {
@@ -1332,15 +1323,25 @@ function generateMapSvgString(scale) {
         if (f.geometry && f.geometry.coordinates) processCoords(f.geometry.coordinates);
     });
 
-    const padding = 40;
+    // ズーム10相当の解像度（1ラジアンあたり約41,720ピクセル）
+    let targetScale = (256 * Math.pow(2, 10)) / (2 * Math.PI);
     const mercWidth = maxX - minX, mercHeight = maxY - minY;
-    const viewBoxWidth = Math.round(mercWidth * scale + 2 * padding);
-    const viewBoxHeight = Math.round(mercHeight * scale + 2 * padding);
+    
+    // ブラウザの画像/Canvas安全上限（最大8000px）に合わせて自動調整
+    const maxDimension = 8000;
+    const padding = 40;
+    
+    if (mercWidth * targetScale > maxDimension || mercHeight * targetScale > maxDimension) {
+        targetScale = Math.min(maxDimension / mercWidth, maxDimension / mercHeight);
+    }
+
+    const viewBoxWidth = Math.ceil(mercWidth * targetScale + 2 * padding);
+    const viewBoxHeight = Math.ceil(mercHeight * targetScale + 2 * padding);
 
     function project([lon, lat]) {
         const [mx, my] = geoToMercator(lon, lat);
-        const sx = (padding + (mx - minX) * scale).toFixed(2);
-        const sy = (padding + (maxY - my) * scale).toFixed(2);
+        const sx = (padding + (mx - minX) * targetScale).toFixed(2);
+        const sy = (padding + (maxY - my) * targetScale).toFixed(2);
         return `${sx},${sy}`;
     }
 
@@ -1406,28 +1407,31 @@ ${boundarySvgHtml}  </g>
 </svg>`;
 }
 
-// ★ 地理院地図 ズーム10の解像度でPNG画像をエクスポート
+// 高精細PNG画像の保存
 function exportMapImage() {
-    showLoading(true, "ズーム10解像度で高精細PNG画像を生成中...");
+    showLoading(true, "ズーム10相当のPNG画像を生成中...");
 
     setTimeout(() => {
         try {
-            const svgString = generateMapSvgString(ZOOM_10_SCALE);
+            const svgString = generateMapSvgString();
             if (!svgString) {
                 showLoading(false);
                 showToast("画像の生成に失敗しました", "error");
                 return;
             }
 
-            const img = new Image();
             const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
             const url = URL.createObjectURL(blob);
+            const img = new Image();
 
             img.onload = () => {
                 const canvas = document.createElement("canvas");
                 canvas.width = img.width;
                 canvas.height = img.height;
                 const ctx = canvas.getContext("2d");
+                
+                ctx.fillStyle = mapBgColor;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
                 ctx.drawImage(img, 0, 0);
 
                 const link = document.createElement("a");
@@ -1438,11 +1442,11 @@ function exportMapImage() {
 
                 URL.revokeObjectURL(url);
                 showLoading(false);
-                showToast("ズーム10解像度のPNG画像を保存しました");
+                showToast("高精細PNG画像を保存しました");
             };
 
             img.onerror = (err) => {
-                console.error(err);
+                console.error("PNG変換エラー:", err);
                 URL.revokeObjectURL(url);
                 showLoading(false);
                 showToast("PNG画像の生成に失敗しました", "error");
@@ -1452,18 +1456,18 @@ function exportMapImage() {
         } catch (err) {
             console.error(err);
             showLoading(false);
-            showToast("画像の生成処理に失敗しました", "error");
+            showToast("画像の保存処理に失敗しました", "error");
         }
     }, 50);
 }
 
-// ★ 地理院地図 ズーム10の解像度でSVGベクター画像をエクスポート
+// 高精細SVGベクター画像の保存
 function exportMapSvg() {
-    showLoading(true, "ズーム10解像度でSVGベクター画像を生成中...");
+    showLoading(true, "ズーム10相当のSVGベクター画像を生成中...");
 
     setTimeout(() => {
         try {
-            const svgString = generateMapSvgString(ZOOM_10_SCALE);
+            const svgString = generateMapSvgString();
             if (!svgString) {
                 showLoading(false);
                 showToast("データが読み込まれていません", "error");
@@ -1480,7 +1484,7 @@ function exportMapSvg() {
             URL.revokeObjectURL(url);
 
             showLoading(false);
-            showToast("ズーム10解像度のSVG画像を保存しました");
+            showToast("高精細SVGベクター画像を保存しました");
         } catch (err) {
             console.error("SVG export error:", err);
             showLoading(false);
