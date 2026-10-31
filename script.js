@@ -27,7 +27,14 @@ const PREFECTURES = [
     { code: "46", name: "鹿児島県" }, { code: "47", name: "沖縄県" }
 ];
 
-const PALETTE_COLORS = [
+// ★ 基本パレット（淡色系 / パステルカラー 12色）
+const PASTEL_COLORS = [
+    "#bfdbfe", "#fca5a5", "#86efac", "#fde047", "#d8b4fe", "#f9a8d4",
+    "#a5f3fc", "#fdba74", "#bef264", "#c7d2fe", "#99f6e4", "#cbd5e1"
+];
+
+// ★ カスタムカラー（初期値 12色）
+let customColors = [
     "#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899",
     "#06b6d4", "#f97316", "#84cc16", "#6366f1", "#14b8a6", "#64748b"
 ];
@@ -49,7 +56,7 @@ let currentGeoJsonData = null;
 let selectedPrefCodes = ["ALL"];
 let tempSelectedCodes = ["ALL"];
 let activeTool = "paint";
-let selectedColor = "#3b82f6";
+let selectedColor = "#bfdbfe";
 
 let colorState = {};
 let currentCityMap = {};
@@ -89,17 +96,17 @@ const STORAGE_KEY_LANDOPACITY = "japan_map_landopacity_v1";
 const STORAGE_KEY_BGIMAGE = "japan_map_bgimage_v1";
 const STORAGE_KEY_SHOW_BASEMAP = "japan_map_show_basemap_v1";
 const STORAGE_KEY_TILE_TYPE = "japan_map_tile_type_v1";
+const STORAGE_KEY_CUSTOM_COLORS = "japan_map_custom_colors_v1";
 
 // --- 初期化処理 ---
 window.onload = function() {
     lucide.createIcons();
     initPwaSupport();
     initPrefModalUI();
-    initColorPalette();
+    loadFromLocalStorage();
+    initColorPalettes();
     initMap();
     bindEvents();
-
-    loadFromLocalStorage();
 
     initBoundaryUIValues();
     updateHeaderPrefButton();
@@ -206,6 +213,7 @@ function saveToLocalStorage() {
         localStorage.setItem(STORAGE_KEY_LANDOPACITY, defaultLandOpacity);
         localStorage.setItem(STORAGE_KEY_SHOW_BASEMAP, JSON.stringify(showBaseMap));
         localStorage.setItem(STORAGE_KEY_TILE_TYPE, selectedTileType);
+        localStorage.setItem(STORAGE_KEY_CUSTOM_COLORS, JSON.stringify(customColors));
         if (bgImageDataUrl) localStorage.setItem(STORAGE_KEY_BGIMAGE, bgImageDataUrl);
         else localStorage.removeItem(STORAGE_KEY_BGIMAGE);
     } catch (e) {
@@ -226,6 +234,7 @@ function loadFromLocalStorage() {
         const savedBgImage = localStorage.getItem(STORAGE_KEY_BGIMAGE);
         const savedShowBaseMap = localStorage.getItem(STORAGE_KEY_SHOW_BASEMAP);
         const savedTileType = localStorage.getItem(STORAGE_KEY_TILE_TYPE);
+        const savedCustomColors = localStorage.getItem(STORAGE_KEY_CUSTOM_COLORS);
 
         if (savedState) colorState = JSON.parse(savedState) || {};
         if (savedPrefs) selectedPrefCodes = JSON.parse(savedPrefs) || ["ALL"];
@@ -238,6 +247,7 @@ function loadFromLocalStorage() {
         if (savedBgImage) bgImageDataUrl = savedBgImage;
         if (savedShowBaseMap !== null) showBaseMap = JSON.parse(savedShowBaseMap);
         if (savedTileType) selectedTileType = savedTileType;
+        if (savedCustomColors) customColors = JSON.parse(savedCustomColors);
     } catch (e) {
         console.warn("LocalStorage 読み込みエラー:", e);
     }
@@ -460,9 +470,21 @@ function getSelectedPrefLabel(codes) {
     return codes.length <= 2 ? names.join("・") : `${names[0]}・${names[1]} 外${codes.length - 2}県`;
 }
 
-function initColorPalette() {
+// ★ カラーパレットの初期化・描画処理（基本淡色12色 ＋ カスタム12色）
+function initColorPalettes() {
+    renderBasePalette();
+    renderCustomPalette();
+
+    document.getElementById("customColorPicker").addEventListener("input", (e) => {
+        const color = e.target.value;
+        addCustomColor(color);
+        setColor(color, false);
+    });
+}
+
+function renderBasePalette() {
     const paletteEl = document.getElementById("colorPalette");
-    paletteEl.innerHTML = PALETTE_COLORS.map((color) => `
+    paletteEl.innerHTML = PASTEL_COLORS.map((color) => `
         <button type="button" data-color="${color}" class="color-swatch w-7 h-7 rounded-full border border-slate-300 shadow-sm transition hover:scale-110 flex items-center justify-center ${color === selectedColor ? 'ring-2 ring-indigo-600 ring-offset-2' : ''}" style="background-color: ${color}">
         </button>
     `).join("");
@@ -470,17 +492,41 @@ function initColorPalette() {
     paletteEl.querySelectorAll(".color-swatch").forEach(btn => {
         btn.addEventListener("click", () => setColor(btn.getAttribute("data-color")));
     });
-
-    document.getElementById("customColorPicker").addEventListener("input", (e) => setColor(e.target.value));
 }
 
-function setColor(color) {
-    selectedColor = color;
-    document.getElementById("customColorPicker").value = color;
-    document.querySelectorAll(".color-swatch").forEach(btn => {
-        if (btn.getAttribute("data-color") === color) btn.classList.add("ring-2", "ring-indigo-600", "ring-offset-2");
-        else btn.classList.remove("ring-2", "ring-indigo-600", "ring-offset-2");
+function renderCustomPalette() {
+    const customPaletteEl = document.getElementById("customColorPalette");
+    customPaletteEl.innerHTML = customColors.map((color, index) => `
+        <button type="button" data-color="${color}" data-index="${index}" class="custom-swatch w-7 h-7 rounded-full border border-slate-300 shadow-sm transition hover:scale-110 flex items-center justify-center ${color === selectedColor ? 'ring-2 ring-indigo-600 ring-offset-2' : ''}" style="background-color: ${color}">
+        </button>
+    `).join("");
+
+    customPaletteEl.querySelectorAll(".custom-swatch").forEach(btn => {
+        btn.addEventListener("click", () => setColor(btn.getAttribute("data-color")));
     });
+}
+
+function addCustomColor(color) {
+    // 重複を削除して先頭に追加、12色に収める
+    customColors = [color, ...customColors.filter(c => c.toLowerCase() !== color.toLowerCase())].slice(0, 12);
+    renderCustomPalette();
+    saveToLocalStorage();
+}
+
+function setColor(color, isPickerSync = true) {
+    selectedColor = color;
+    if (isPickerSync) {
+        document.getElementById("customColorPicker").value = color;
+    }
+    
+    document.querySelectorAll(".color-swatch, .custom-swatch").forEach(btn => {
+        if (btn.getAttribute("data-color").toLowerCase() === color.toLowerCase()) {
+            btn.classList.add("ring-2", "ring-indigo-600", "ring-offset-2");
+        } else {
+            btn.classList.remove("ring-2", "ring-indigo-600", "ring-offset-2");
+        }
+    });
+
     setToolMode("paint");
 }
 
@@ -506,13 +552,11 @@ function initMap() {
 
     L.control.zoom({ position: "bottomright" }).addTo(map);
 
-    // 描画階層 (Pane) を作成
     map.createPane("landPane");
     map.getPane("landPane").style.zIndex = 400;
 
     map.createPane("boundaryPane");
     map.getPane("boundaryPane").style.zIndex = 500;
-    // ★ 境界線Paneがクリックイベントを遮断しないようにポインターイベントを無効化 ★
     map.getPane("boundaryPane").style.pointerEvents = "none";
 
     updateTileLayer(selectedTileType);
@@ -694,7 +738,8 @@ function renderGeoJson(data, topologyFeatures) {
 
             layer.on({
                 mouseover: (e) => {
-                    const opacity = enableLandOpacity ? Math.min(1.0, defaultLandOpacity + 0.2) : 1.0;
+                    const colored = Boolean(colorState[code]);
+                    const opacity = colored ? 1.0 : (enableLandOpacity ? Math.min(1.0, defaultLandOpacity + 0.2) : 1.0);
                     e.target.setStyle({ fillOpacity: opacity });
                     showHoverCard(true, prefName, name, code);
                 },
@@ -816,16 +861,25 @@ function renderBoundaryLayers() {
     });
 }
 
+// ★ 陸地スタイルの決定（ペイント箇所は常に不透明 1.0 / 未塗り箇所のみ透過適用）
 function featureStyle(feature) {
     const code = getCityCode(feature.properties);
     const colored = colorState[code];
-    const fillOpacity = enableLandOpacity ? defaultLandOpacity : 1.0;
 
-    return {
-        fillColor: colored || defaultLandColor,
-        fillOpacity: fillOpacity,
-        stroke: false
-    };
+    if (colored) {
+        return {
+            fillColor: colored,
+            fillOpacity: 1.0, // ペイント部分は常に完全不透明
+            stroke: false
+        };
+    } else {
+        const fillOpacity = enableLandOpacity ? defaultLandOpacity : 1.0; // 未塗り陸地のみ設定に従う
+        return {
+            fillColor: defaultLandColor,
+            fillOpacity: fillOpacity,
+            stroke: false
+        };
+    }
 }
 
 function handleCityClick(code) {
@@ -985,7 +1039,8 @@ function exportStateJson() {
         defaultLandOpacity: defaultLandOpacity,
         mapBgColor: mapBgColor,
         showBaseMap: showBaseMap,
-        selectedTileType: selectedTileType
+        selectedTileType: selectedTileType,
+        customColors: customColors
     };
     const jsonStr = JSON.stringify(exportData, null, 2);
     const blob = new Blob([jsonStr], { type: "application/json" });
@@ -1014,8 +1069,10 @@ function importStateJson(e) {
                 if (data.mapBgColor) mapBgColor = data.mapBgColor;
                 if (data.showBaseMap !== undefined) showBaseMap = data.showBaseMap;
                 if (data.selectedTileType) selectedTileType = data.selectedTileType;
+                if (data.customColors) customColors = data.customColors;
 
                 initBoundaryUIValues();
+                renderCustomPalette();
                 updateTileLayer(selectedTileType);
                 refreshLayerStyles();
                 saveToLocalStorage();
@@ -1153,7 +1210,6 @@ function exportMapSvg() {
             function lineToD(lines) { return lines.map(line => `M ${project(line[0])} L ${project(line[1])}`).join(" "); }
 
             let pathsHtml = "";
-            const fillOpacity = enableLandOpacity ? defaultLandOpacity : 1.0;
 
             exportFeatures.forEach(feature => {
                 const props = feature.properties;
@@ -1163,6 +1219,7 @@ function exportMapSvg() {
                 const prefName = props.N03_001 || getPrefName(prefCode) || "都道府県";
                 const colored = Boolean(colorState[code]);
                 const fillColor = colored ? colorState[code] : defaultLandColor;
+                const fillOpacity = colored ? 1.0 : (enableLandOpacity ? defaultLandOpacity : 1.0);
                 const d = geomToD(feature.geometry);
 
                 if (d) pathsHtml += `    <path d="${d}" fill="${fillColor}" fill-opacity="${fillOpacity}" stroke="none" data-code="${code}" data-name="${name}" data-pref="${prefName}"><title>${prefName} ${name}</title></path>\n`;
