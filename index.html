@@ -433,6 +433,28 @@
                 </div>
             </div>
 
+            <!-- ★ サンプルデータ設定パネル（リストの下に追加） -->
+            <div class="p-4 border-t border-slate-200 bg-slate-50 space-y-2">
+                <div class="flex items-center justify-between">
+                    <label class="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <i data-lucide="sparkles" class="w-4 h-4 text-indigo-500"></i>
+                        サンプルデータ設定
+                    </label>
+                </div>
+                <p class="text-[11px] text-slate-500">自治体区分（特別区・政令市・市・町・村）ごとに淡い色で塗り分けます。</p>
+                <button type="button" id="btnApplySampleData" class="w-full py-2 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg border border-indigo-200 text-xs transition flex items-center justify-center gap-1.5 shadow-xs">
+                    <i data-lucide="palette" class="w-4 h-4"></i>
+                    自治体区分サンプルを適用
+                </button>
+                <div class="grid grid-cols-5 gap-1 text-[10px] text-center pt-1 font-semibold">
+                    <span class="py-1 px-0.5 rounded border" style="background-color: #fecaca; color: #991b1b; border-color: #fca5a5;">特別区</span>
+                    <span class="py-1 px-0.5 rounded border" style="background-color: #fbcfe8; color: #9d174d; border-color: #f9a8d4;">政令市</span>
+                    <span class="py-1 px-0.5 rounded border" style="background-color: #fed7aa; color: #9a3412; border-color: #fdba74;">市</span>
+                    <span class="py-1 px-0.5 rounded border" style="background-color: #bbf7d0; color: #166534; border-color: #86efac;">町</span>
+                    <span class="py-1 px-0.5 rounded border" style="background-color: #bae6fd; color: #075985; border-color: #7dd3fc;">村</span>
+                </div>
+            </div>
+
             <!-- クレジット -->
             <div class="p-3 bg-slate-50 border-t border-slate-200 text-[11px] text-slate-400 text-center">
                 出典: 国土交通省「国土数値情報（行政区域データ）」<br>
@@ -491,7 +513,7 @@
 
             <div class="p-5 overflow-y-auto flex-1 space-y-4">
                 
-                <!-- ★ マップ表示モード切替（市区町村版 ⇔ 都道府県版） -->
+                <!-- マップ表示モード切替（市区町村版 ⇔ 都道府県版） -->
                 <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-3.5 space-y-2">
                     <label class="block text-xs font-bold text-indigo-900 uppercase tracking-wider flex items-center gap-1.5">
                         <i data-lucide="map" class="w-4 h-4 text-indigo-600"></i>
@@ -509,7 +531,7 @@
                     </div>
                 </div>
 
-                <!-- 地域・都道府県選択（市区町村版時のみ使用可能） -->
+                <!-- 地域・都道府県選択 -->
                 <div id="prefSelectSection">
                     <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">地方で一括選択</label>
                     <div class="flex flex-wrap gap-1.5 mb-4" id="regionButtons">
@@ -568,7 +590,7 @@
         </div>
     </div>
 
-    <!-- ★ モード変更時 警告確認モーダル -->
+    <!-- モード変更時 警告確認モーダル -->
     <div id="modeConfirmModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex justify-center items-center z-[60] p-4 hidden">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border border-slate-100 text-center space-y-4">
             <div class="w-12 h-12 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto">
@@ -587,6 +609,30 @@
                 </button>
                 <button id="btnApplyModeConfirm" type="button" class="flex-1 py-2 px-4 text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl transition shadow-md">
                     切り替える
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ★ サンプルデータ適用 警告確認モーダル -->
+    <div id="sampleConfirmModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex justify-center items-center z-[60] p-4 hidden">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border border-slate-100 text-center space-y-4">
+            <div class="w-12 h-12 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto">
+                <i data-lucide="palette" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <h3 class="text-base font-bold text-slate-800 mb-1">サンプルデータの適用確認</h3>
+                <p class="text-xs text-slate-600 leading-relaxed">
+                    自治体区分ごとのサンプルカラー（特別区:赤、政令市:ピンク、市:オレンジ、町:緑、村:水色）を自動適用しますか？<br>
+                    <span class="text-rose-500 font-semibold">※現在の塗りつぶし状態はすべて上書きされます。</span>
+                </p>
+            </div>
+            <div class="flex gap-3 justify-center pt-2">
+                <button id="btnCancelSampleConfirm" type="button" class="flex-1 py-2 px-4 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition">
+                    キャンセル
+                </button>
+                <button id="btnApplySampleConfirm" type="button" class="flex-1 py-2 px-4 text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl transition shadow-md">
+                    適用する
                 </button>
             </div>
         </div>
