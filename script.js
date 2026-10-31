@@ -172,29 +172,89 @@ function getFeaturePrefCode(feature) {
     return "";
 }
 
-// 鉄道データ取得関数（自動フォールバック付き）
+// --- 鉄道駅LOD (SPARQL エンドポイント) から路線形状を取得 ---
 async function fetchRailwayData() {
     if (railwayGeoJsonCache) return railwayGeoJsonCache;
     
-    const urls = [
-        "https://raw.githubusercontent.com/smartnews-smri/japan-topography/main/data/railway/geojson/N02-19_Railway.json",
-        "https://raw.githubusercontent.com/smartnews-smri/japan-topography/main/data/railway/N02-19_Railway.json"
-    ];
-
-    for (const url of urls) {
-        try {
-            const res = await fetch(url);
-            if (res.ok) {
-                const data = await res.json();
-                railwayGeoJsonCache = data;
-                return data;
-            }
-        } catch (e) {
-            console.warn(`鉄道データ取得失敗 (${url}):`, e);
+    const sparqlQuery = `
+        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+        PREFIX ogc: <http://www.opengis.net/ont/geosparql#>
+        
+        SELECT ?lineLabel ?wkt WHERE {
+          ?line a <https://uedayou.net/jrslod/Class/路線> ;
+                rdfs:label ?lineLabel ;
+                ogc:asWKT ?wkt .
         }
-    }
+    `;
 
-    showToast("鉄道データの取得に失敗しました", "error");
+    const endpointUrl = `https://uedayou.net/jrslod/sparql?query=${encodeURIComponent(sparqlQuery)}&format=json`;
+
+    try {
+        console.log("鉄道駅LOD SPARQLエンドポイントからデータ取得中...");
+        const res = await fetch(endpointUrl);
+        if (!res.ok) throw new Error(`HTTPエラー status: ${res.status}`);
+        
+        const data = await res.json();
+        const bindings = data.results?.bindings || [];
+        const features = [];
+
+        bindings.forEach(b => {
+            const wktStr = b.wkt?.value;
+            const label = b.lineLabel?.value || "鉄道路線";
+            if (wktStr) {
+                const geometry = parseWKT(wktStr);
+                if (geometry) {
+                    features.push({
+                        type: "Feature",
+                        properties: { name: label },
+                        geometry: geometry
+                    });
+                }
+            }
+        });
+
+        if (features.length === 0) {
+            throw new Error("路線図の形状データを検出できませんでした");
+        }
+
+        railwayGeoJsonCache = { type: "FeatureCollection", features: features };
+        console.log(`鉄道駅LODより ${features.length} 件の路線図データを変換・読み込みました`);
+        return railwayGeoJsonCache;
+
+    } catch (e) {
+        console.warn("鉄道駅LODデータ取得エラー:", e);
+        showToast("鉄道駅LODからのデータ取得に失敗しました", "error");
+        return null;
+    }
+}
+
+// WKT (Well-Known Text) 形式を GeoJSON 幾何オブジェクトにパースするヘルパー関数
+function parseWKT(wktStr) {
+    try {
+        const cleanWkt = wktStr.trim();
+        
+        if (cleanWkt.startsWith("LINESTRING")) {
+            const coordsStr = cleanWkt.replace(/^LINESTRING\s*\(/i, "").replace(/\)$/, "");
+            const coordinates = coordsStr.split(",").map(pt => {
+                const [lng, lat] = pt.trim().split(/\s+/).map(Number);
+                return [lng, lat];
+            });
+            return { type: "LineString", coordinates: coordinates };
+        } 
+        else if (cleanWkt.startsWith("MULTILINESTRING")) {
+            const linesStr = cleanWkt.replace(/^MULTILINESTRING\s*\(\s*\(/i, "").replace(/\)\s*\)$/, "");
+            const rawLines = linesStr.split(/\)\s*,\s*\(/);
+            const coordinates = rawLines.map(line => {
+                return line.split(",").map(pt => {
+                    const [lng, lat] = pt.trim().split(/\s+/).map(Number);
+                    return [lng, lat];
+                });
+            });
+            return { type: "MultiLineString", coordinates: coordinates };
+        }
+    } catch (err) {
+        console.warn("WKTパース例外:", err);
+    }
     return null;
 }
 
@@ -831,7 +891,7 @@ function bindEvents() {
             };
 
             if (item.type === "railway" && chkEl.checked && !boundaryGeoJsons.railway) {
-                showLoading(true, "鉄道データを取得中...");
+                showLoading(true, "鉄道駅LODよりデータ取得中...");
                 boundaryGeoJsons.railway = await fetchRailwayData();
                 showLoading(false);
             }
