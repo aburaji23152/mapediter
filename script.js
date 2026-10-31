@@ -62,7 +62,7 @@ let defaultLandOpacity = 0.45;
 let bgImageDataUrl = null;
 let mapBgColor = "#f1f5f9";
 
-// 境界線カスタマイズ状態
+// 境界線カスタマイズ状態（初期値）
 let boundarySettings = {
     coast: { show: true, color: "#1e293b", weight: 2.0, style: "solid" },
     pref: { show: true, color: "#0f172a", weight: 2.5, style: "solid" },
@@ -267,11 +267,11 @@ function initBoundaryUIValues() {
     }
 
     const uiMap = [
-        { type: "coast", chk: "chkCoastBoundary", color: "colorCoastBoundary", weight: "weightCoastBoundary" },
-        { type: "pref", chk: "chkPrefBoundary", color: "colorPrefBoundary", weight: "weightPrefBoundary" },
-        { type: "city", chk: "chkCityBoundary", color: "colorCityBoundary", weight: "weightCityBoundary" },
-        { type: "county", chk: "chkCountyBoundary", color: "colorCountyBoundary", style: "styleCountyBoundary" },
-        { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", style: "styleWardBoundary" }
+        { type: "coast", chk: "chkCoastBoundary", color: "colorCoastBoundary", weight: "weightCoastBoundary", style: "styleCoastBoundary" },
+        { type: "pref", chk: "chkPrefBoundary", color: "colorPrefBoundary", weight: "weightPrefBoundary", style: "stylePrefBoundary" },
+        { type: "city", chk: "chkCityBoundary", color: "colorCityBoundary", weight: "weightCityBoundary", style: "styleCityBoundary" },
+        { type: "county", chk: "chkCountyBoundary", color: "colorCountyBoundary", weight: "weightCountyBoundary", style: "styleCountyBoundary" },
+        { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", weight: "weightWardBoundary", style: "styleWardBoundary" }
     ];
 
     uiMap.forEach(item => {
@@ -279,8 +279,8 @@ function initBoundaryUIValues() {
         if (chk && boundarySettings[item.type]) {
             chk.checked = boundarySettings[item.type].show;
             document.getElementById(item.color).value = boundarySettings[item.type].color;
-            if (item.weight) document.getElementById(item.weight).value = boundarySettings[item.type].weight;
-            if (item.style) document.getElementById(item.style).value = boundarySettings[item.type].style;
+            if (document.getElementById(item.weight)) document.getElementById(item.weight).value = boundarySettings[item.type].weight;
+            if (document.getElementById(item.style)) document.getElementById(item.style).value = boundarySettings[item.type].style;
         }
     });
 }
@@ -497,7 +497,6 @@ function setToolMode(mode) {
     }
 }
 
-// --- Leaflet Map 初期化とレイヤーPane設定 ---
 function initMap() {
     map = L.map("map", {
         zoomControl: false,
@@ -507,7 +506,6 @@ function initMap() {
 
     L.control.zoom({ position: "bottomright" }).addTo(map);
 
-    // ★ Leaflet描画階層 (Pane) を作成して階層構造を厳格制御 ★
     map.createPane("landPane");
     map.getPane("landPane").style.zIndex = 400;
 
@@ -558,20 +556,17 @@ function bindEvents() {
     document.getElementById("btnExportPng").addEventListener("click", exportMapImage);
     document.getElementById("btnExportSvg").addEventListener("click", exportMapSvg);
 
-    // 海の色・背景色設定
     document.getElementById("bgColorPicker").addEventListener("input", (e) => {
         applyMapBgColor(e.target.value);
         saveToLocalStorage();
     });
 
-    // ベースマップ表示制御
     document.getElementById("chkShowBaseMap").addEventListener("change", (e) => {
         showBaseMap = e.target.checked;
         updateTileLayer(selectedTileType);
         saveToLocalStorage();
     });
 
-    // ベースマップタイプ切り替え
     document.querySelectorAll(".tile-btn").forEach(btn => {
         btn.addEventListener("click", () => {
             const tileType = btn.getAttribute("data-tile");
@@ -581,14 +576,12 @@ function bindEvents() {
         });
     });
 
-    // 陸の色（未塗りエリア）設定
     document.getElementById("landColorPicker").addEventListener("input", (e) => {
         defaultLandColor = e.target.value;
         refreshLayerStyles();
         saveToLocalStorage();
     });
 
-    // 透過の有効/無効切り替え
     document.getElementById("chkEnableOpacity").addEventListener("change", (e) => {
         enableLandOpacity = e.target.checked;
         const rangeOpacity = document.getElementById("landOpacityRange");
@@ -598,7 +591,6 @@ function bindEvents() {
         saveToLocalStorage();
     });
 
-    // 陸の透明度スライダー設定
     document.getElementById("landOpacityRange").addEventListener("input", (e) => {
         defaultLandOpacity = parseFloat(e.target.value);
         document.getElementById("landOpacityVal").textContent = defaultLandOpacity;
@@ -606,7 +598,6 @@ function bindEvents() {
         saveToLocalStorage();
     });
 
-    // 背景画像アップロード
     document.getElementById("bgImageInput").addEventListener("change", (e) => {
         const file = e.target.files[0];
         if (file) {
@@ -623,7 +614,6 @@ function bindEvents() {
         }
     });
 
-    // 背景画像削除
     document.getElementById("btnRemoveBgImage").addEventListener("click", () => {
         bgImageDataUrl = null;
         applyBgImage(null);
@@ -634,13 +624,13 @@ function bindEvents() {
         showToast("背景画像を削除しました");
     });
 
-    // 境界線コントロール
+    // 境界線コントロールの完全なバインディング
     const boundaryUIKeys = [
-        { type: "coast", chk: "chkCoastBoundary", color: "colorCoastBoundary", weight: "weightCoastBoundary" },
-        { type: "pref", chk: "chkPrefBoundary", color: "colorPrefBoundary", weight: "weightPrefBoundary" },
-        { type: "city", chk: "chkCityBoundary", color: "colorCityBoundary", weight: "weightCityBoundary" },
-        { type: "county", chk: "chkCountyBoundary", color: "colorCountyBoundary", style: "styleCountyBoundary" },
-        { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", style: "styleWardBoundary" }
+        { type: "coast", chk: "chkCoastBoundary", color: "colorCoastBoundary", weight: "weightCoastBoundary", style: "styleCoastBoundary" },
+        { type: "pref", chk: "chkPrefBoundary", color: "colorPrefBoundary", weight: "weightPrefBoundary", style: "stylePrefBoundary" },
+        { type: "city", chk: "chkCityBoundary", color: "colorCityBoundary", weight: "weightCityBoundary", style: "styleCityBoundary" },
+        { type: "county", chk: "chkCountyBoundary", color: "colorCountyBoundary", weight: "weightCountyBoundary", style: "styleCountyBoundary" },
+        { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", weight: "weightWardBoundary", style: "styleWardBoundary" }
     ];
 
     boundaryUIKeys.forEach(item => {
