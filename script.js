@@ -702,6 +702,21 @@ function bindEvents() {
         });
     }
 
+    // ★ サンプルデータ適用モーダルのイベント設定
+    document.getElementById("btnApplySampleData").addEventListener("click", () => {
+        document.getElementById("sampleConfirmModal").classList.remove("hidden");
+        lucide.createIcons();
+    });
+
+    document.getElementById("btnCancelSampleConfirm").addEventListener("click", () => {
+        document.getElementById("sampleConfirmModal").classList.add("hidden");
+    });
+
+    document.getElementById("btnApplySampleConfirm").addEventListener("click", () => {
+        document.getElementById("sampleConfirmModal").classList.add("hidden");
+        applySampleCategoryColors();
+    });
+
     document.getElementById("bgColorPicker").addEventListener("input", (e) => {
         applyMapBgColor(e.target.value);
         saveToLocalStorage();
@@ -982,7 +997,6 @@ function renderBoundaryLayers() {
     });
 }
 
-// ★ 都道府県モード時は線の色を面と同色にして隙間（市境の影）を完全に消去
 function featureStyle(feature) {
     const cityCode = getCityCode(feature.properties);
     const prefCode = getFeaturePrefCode(feature);
@@ -1038,6 +1052,62 @@ function removeCityColor(code) {
 
     saveToLocalStorage();
     updateUIStats();
+}
+
+// ★ 自治体区分サンプルカラーの自動適用処理
+function applySampleCategoryColors() {
+    if (!geojsonLayer) return;
+
+    // 自治体区分用サンプルカラー（すべて淡い色）
+    const SAMPLE_COLORS = {
+        tokubetsuku: "#fecaca", // 特別区：淡い赤
+        seireishi: "#fbcfe8",   // 政令市：淡いピンク
+        shi: "#fed7aa",         // 市：淡いオレンジ
+        cho: "#bbf7d0",         // 町：淡い緑
+        son: "#bae6fd"          // 村：淡い水色
+    };
+
+    colorState = {};
+
+    geojsonLayer.eachLayer(layer => {
+        const props = layer.feature.properties || {};
+        const code = getCityCode(props);
+        const prefCode = getFeaturePrefCode(layer.feature);
+
+        const n03_003 = props.N03_003 ? String(props.N03_003) : "";
+        const n03_004 = props.N03_004 ? String(props.N03_004) : "";
+        const n03_005 = props.N03_005 ? String(props.N03_005) : "";
+
+        let assignedColor = SAMPLE_COLORS.shi; // デフォルト：市
+
+        // 1. 特別区 (東京23区)
+        if (prefCode === "13" && (n03_004.endsWith("区") && !n03_003.endsWith("市"))) {
+            assignedColor = SAMPLE_COLORS.tokubetsuku;
+        } 
+        // 2. 政令指定都市（区・市）
+        else if (n03_005 !== "" || (n03_003.endsWith("市") && n03_004.endsWith("区"))) {
+            assignedColor = SAMPLE_COLORS.seireishi;
+        } 
+        // 3. 町
+        else if (n03_004.endsWith("町")) {
+            assignedColor = SAMPLE_COLORS.cho;
+        } 
+        // 4. 村
+        else if (n03_004.endsWith("村")) {
+            assignedColor = SAMPLE_COLORS.son;
+        } 
+        // 5. 市
+        else if (n03_004.endsWith("市")) {
+            assignedColor = SAMPLE_COLORS.shi;
+        }
+
+        colorState[code] = assignedColor;
+    });
+
+    refreshLayerStyles();
+    saveToLocalStorage();
+    updateUIStats();
+    showToast("自治体区分サンプルデータを適用しました");
 }
 
 function fillAllCurrentPref() {
