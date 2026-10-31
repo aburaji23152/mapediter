@@ -172,17 +172,30 @@ function getFeaturePrefCode(feature) {
     return "";
 }
 
+// 鉄道データ取得関数（自動フォールバック付き）
 async function fetchRailwayData() {
     if (railwayGeoJsonCache) return railwayGeoJsonCache;
-    try {
-        const res = await fetch("https://raw.githubusercontent.com/smartnews-smri/japan-topography/main/data/railway/geojson/N02-19_Railway.json");
-        if (!res.ok) throw new Error("鉄道データの読み込み失敗");
-        railwayGeoJsonCache = await res.json();
-        return railwayGeoJsonCache;
-    } catch (e) {
-        console.warn("鉄道 GeoJSON 取得エラー:", e);
-        return null;
+    
+    const urls = [
+        "https://raw.githubusercontent.com/smartnews-smri/japan-topography/main/data/railway/geojson/N02-19_Railway.json",
+        "https://raw.githubusercontent.com/smartnews-smri/japan-topography/main/data/railway/N02-19_Railway.json"
+    ];
+
+    for (const url of urls) {
+        try {
+            const res = await fetch(url);
+            if (res.ok) {
+                const data = await res.json();
+                railwayGeoJsonCache = data;
+                return data;
+            }
+        } catch (e) {
+            console.warn(`鉄道データ取得失敗 (${url}):`, e);
+        }
     }
+
+    showToast("鉄道データの取得に失敗しました", "error");
+    return null;
 }
 
 async function loadPrefectureData(codes) {
@@ -644,12 +657,18 @@ function initMap() {
 
     L.control.zoom({ position: "bottomright" }).addTo(map);
 
+    // 重ね順の指定
     map.createPane("landPane");
     map.getPane("landPane").style.zIndex = 400;
 
     map.createPane("boundaryPane");
     map.getPane("boundaryPane").style.zIndex = 500;
     map.getPane("boundaryPane").style.pointerEvents = "none";
+
+    // 鉄道用最前面ペイン
+    map.createPane("railwayPane");
+    map.getPane("railwayPane").style.zIndex = 600;
+    map.getPane("railwayPane").style.pointerEvents = "none";
 
     updateTileLayer(selectedTileType);
 }
@@ -994,8 +1013,10 @@ function renderBoundaryLayers() {
             if (setting.style === "dashed") dashArray = "6, 4";
             else if (setting.style === "dotted") dashArray = "2, 3";
 
+            const targetPane = (type === "railway") ? "railwayPane" : "boundaryPane";
+
             boundaryLayers[type] = L.geoJSON(geojson, {
-                pane: "boundaryPane",
+                pane: targetPane,
                 style: {
                     color: setting.color,
                     weight: setting.weight,
