@@ -62,7 +62,7 @@ let defaultLandOpacity = 0.45;
 let bgImageDataUrl = null;
 let mapBgColor = "#f1f5f9";
 
-// 境界線カスタマイズ状態（初期値）
+// 境界線カスタマイズ状態
 let boundarySettings = {
     coast: { show: true, color: "#1e293b", weight: 2.0, style: "solid" },
     pref: { show: true, color: "#0f172a", weight: 2.5, style: "solid" },
@@ -506,11 +506,14 @@ function initMap() {
 
     L.control.zoom({ position: "bottomright" }).addTo(map);
 
+    // 描画階層 (Pane) を作成
     map.createPane("landPane");
     map.getPane("landPane").style.zIndex = 400;
 
     map.createPane("boundaryPane");
     map.getPane("boundaryPane").style.zIndex = 500;
+    // ★ 境界線Paneがクリックイベントを遮断しないようにポインターイベントを無効化 ★
+    map.getPane("boundaryPane").style.pointerEvents = "none";
 
     updateTileLayer(selectedTileType);
 }
@@ -624,7 +627,6 @@ function bindEvents() {
         showToast("背景画像を削除しました");
     });
 
-    // 境界線コントロールの完全なバインディング
     const boundaryUIKeys = [
         { type: "coast", chk: "chkCoastBoundary", color: "colorCoastBoundary", weight: "weightCoastBoundary", style: "styleCoastBoundary" },
         { type: "pref", chk: "chkPrefBoundary", color: "colorPrefBoundary", weight: "weightPrefBoundary", style: "stylePrefBoundary" },
@@ -700,7 +702,10 @@ function renderGeoJson(data, topologyFeatures) {
                     geojsonLayer.resetStyle(e.target);
                     showHoverCard(false);
                 },
-                click: () => handleCityClick(code)
+                click: (e) => {
+                    L.DomEvent.stopPropagation(e);
+                    handleCityClick(code);
+                }
             });
         }
     }).addTo(map);
