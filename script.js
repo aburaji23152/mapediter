@@ -951,6 +951,11 @@ function renderBoundaryLayers() {
             boundaryLayers[type] = null;
         }
 
+        // ★ 都道府県モード時は 市区町村境(city) / 郡境(county) / 行政区境(ward) を描画しない
+        if (mapMode === "pref" && (type === "city" || type === "county" || type === "ward")) {
+            return;
+        }
+
         const setting = boundarySettings[type];
         const geojson = boundaryGeoJsons[type];
 
