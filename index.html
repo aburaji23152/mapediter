@@ -127,15 +127,21 @@
                     </div>
                 </div>
 
+                <!-- カラーパレット（淡色系 ＆ カスタム12色） -->
                 <div>
-                    <div class="flex justify-between items-center mb-2">
-                        <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">カラーパレット</label>
+                    <div class="flex justify-between items-center mb-1.5">
+                        <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">基本パレット (淡色系)</label>
                         <div class="flex items-center gap-1.5">
-                            <span class="text-xs text-slate-400">カスタム:</span>
-                            <input type="color" id="customColorPicker" value="#3b82f6" class="w-6 h-6 rounded-full cursor-pointer border border-slate-300 shadow-sm">
+                            <span class="text-xs text-slate-400">ピーカー:</span>
+                            <input type="color" id="customColorPicker" value="#bfdbfe" class="w-6 h-6 rounded-full cursor-pointer border border-slate-300 shadow-sm">
                         </div>
                     </div>
-                    <div id="colorPalette" class="grid grid-cols-6 gap-2"></div>
+                    <!-- 基本パレット 12色 -->
+                    <div id="colorPalette" class="grid grid-cols-6 gap-2 mb-3"></div>
+
+                    <!-- カスタムカラー 12色 -->
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">カスタムカラー (12色)</label>
+                    <div id="customColorPalette" class="grid grid-cols-6 gap-2"></div>
                 </div>
 
                 <div>
@@ -215,7 +221,7 @@
                         <div class="flex items-center justify-between">
                             <label class="flex items-center gap-1.5 text-slate-700 cursor-pointer select-none">
                                 <input type="checkbox" id="chkEnableOpacity" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
-                                <span>透過（半透明）を有効化</span>
+                                <span>未塗り陸地の透過を有効化</span>
                             </label>
                         </div>
                         <div class="flex items-center justify-between pl-5">
