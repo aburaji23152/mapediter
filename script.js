@@ -27,7 +27,7 @@ const PREFECTURES = [
     { code: "46", name: "鹿児島県" }, { code: "47", name: "沖縄県" }
 ];
 
-// ★ 基本パレット（淡い色 12色 ＋ 従来の色 12色 ＝ 全24色）
+// 基本パレット（淡い色 12色 ＋ 従来の色 12色 ＝ 全24色）
 const BASE_COLORS = [
     // 淡い色 (12色)
     "#bfdbfe", "#fca5a5", "#86efac", "#fde047", "#d8b4fe", "#f9a8d4",
@@ -37,7 +37,7 @@ const BASE_COLORS = [
     "#06b6d4", "#f97316", "#84cc16", "#6366f1", "#14b8a6", "#64748b"
 ];
 
-// ★ カスタムカラー（個別に編集可能な12色）
+// カスタムカラー（個別に編集可能な12色）
 let customColors = [
     "#e0e7ff", "#ffe4e6", "#dcfce7", "#fef9c3", "#f3e8ff", "#fce7f3",
     "#cffafe", "#ffedd5", "#ecfccb", "#e0e7ff", "#ccfbf1", "#f1f5f9"
@@ -474,7 +474,7 @@ function getSelectedPrefLabel(codes) {
     return codes.length <= 2 ? names.join("・") : `${names[0]}・${names[1]} 外${codes.length - 2}県`;
 }
 
-// ★ カラーパレットの初期化・描画処理（基本24色 ＋ カスタム個別選択12色）
+// カラーパレットの初期化・描画処理（基本24色 ＋ カスタム個別選択12色）
 function initColorPalettes() {
     renderBasePalette();
     renderCustomPalette();
@@ -900,6 +900,23 @@ function handleCityClick(code) {
     updateUIStats();
 }
 
+// ★ リストからの直接削除専用処理
+function removeCityColor(code) {
+    delete colorState[code];
+
+    if (geojsonLayer) {
+        geojsonLayer.eachLayer(layer => {
+            if (getCityCode(layer.feature.properties) === code) {
+                layer.setStyle(featureStyle(layer.feature));
+            }
+        });
+    }
+
+    saveToLocalStorage();
+    updateUIStats();
+}
+window.removeCityColor = removeCityColor;
+
 function fillAllCurrentPref() {
     Object.keys(currentCityMap).forEach(code => colorState[code] = selectedColor);
     refreshLayerStyles();
@@ -961,7 +978,7 @@ function updateUIStats() {
                         ${isMultiOrNational && city.prefName ? `<span class="text-slate-400 text-[10px] mr-1">[${city.prefName}]</span>` : ''}${city.name}
                     </span>
                 </div>
-                <button onclick="handleCityClick('${code}')" class="text-slate-400 hover:text-rose-500 p-1 transition shrink-0" title="消去">
+                <button onclick="removeCityColor('${code}')" class="text-slate-400 hover:text-rose-500 p-1 transition shrink-0" title="消去">
                     <i data-lucide="x" class="w-3.5 h-3.5"></i>
                 </button>
             </div>
