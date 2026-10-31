@@ -37,12 +37,13 @@ const TILE_LAYERS = {
     std: "https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png"
 };
 
-// 内陸8県（海岸線を持たない都道府県）
 const LANDLOCKED_PREFS = new Set(["09", "10", "11", "19", "20", "21", "25", "29"]);
 
 // --- アプリケーション状態 ---
 let map = null;
 let currentTileLayer = null;
+let selectedTileType = "pale";
+let showBaseMap = true;
 let geojsonLayer = null;
 let currentGeoJsonData = null;
 let selectedPrefCodes = ["ALL"];
@@ -56,8 +57,8 @@ let nationalFeaturesCache = null;
 
 // 背景・陸地設定
 let defaultLandColor = "#ffffff";
-let enableLandOpacity = false; // 透過の有効/無効フラグ
-let defaultLandOpacity = 0.45; // 透過設定時の透明度
+let enableLandOpacity = false;
+let defaultLandOpacity = 0.45;
 let bgImageDataUrl = null;
 let mapBgColor = "#f1f5f9";
 
@@ -70,19 +71,13 @@ let boundarySettings = {
     ward: { show: true, color: "#64748b", weight: 1.0, style: "dashed" }
 };
 
-// 抽出された境界線データ & レイヤー
 let boundaryGeoJsons = { coast: null, pref: null, city: null, county: null, ward: null };
 let boundaryLayers = { coast: null, pref: null, city: null, county: null, ward: null };
 
-// 島嶼部（離島）表示フラグ
-let includeIslands = {
-    "13": true, // 東京都
-    "46": true, // 鹿児島県
-    "47": true  // 沖縄県
-};
+let includeIslands = { "13": true, "46": true, "47": true };
 let tempIncludeIslands = { ...includeIslands };
 
-// LocalStorage 保存キー
+// LocalStorage キー
 const STORAGE_KEY_COLOR_STATE = "japan_map_color_state_v1";
 const STORAGE_KEY_SELECTED_PREFS = "japan_map_selected_prefs_v1";
 const STORAGE_KEY_ISLANDS = "japan_map_include_islands_v1";
@@ -92,6 +87,8 @@ const STORAGE_KEY_LANDCOLOR = "japan_map_landcolor_v1";
 const STORAGE_KEY_ENABLE_OPACITY = "japan_map_enable_opacity_v1";
 const STORAGE_KEY_LANDOPACITY = "japan_map_landopacity_v1";
 const STORAGE_KEY_BGIMAGE = "japan_map_bgimage_v1";
+const STORAGE_KEY_SHOW_BASEMAP = "japan_map_show_basemap_v1";
+const STORAGE_KEY_TILE_TYPE = "japan_map_tile_type_v1";
 
 // --- 初期化処理 ---
 window.onload = function() {
@@ -109,7 +106,6 @@ window.onload = function() {
     loadPrefectureData(selectedPrefCodes);
 };
 
-// --- Service Worker 登録 & インストールプロンプト＆自動更新機能 ---
 let deferredPrompt = null;
 let isRefreshing = false;
 
@@ -123,15 +119,11 @@ function initPwaSupport() {
                 newWorker.addEventListener("statechange", () => {
                     if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
                         showToast("アプリが最新バージョンに更新されました！再読み込みします...");
-                        setTimeout(() => {
-                            window.location.reload();
-                        }, 1500);
+                        setTimeout(() => window.location.reload(), 1500);
                     }
                 });
             });
-        }).catch(err => {
-            console.log("Service Worker登録制限 (環境依存):", err);
-        });
+        }).catch(err => console.log("Service Worker登録制限:", err));
 
         navigator.serviceWorker.addEventListener("controllerchange", () => {
             if (isRefreshing) return;
@@ -143,19 +135,14 @@ function initPwaSupport() {
     window.addEventListener("beforeinstallprompt", (e) => {
         e.preventDefault();
         deferredPrompt = e;
-        const btnInstall = document.getElementById("btnInstallPwa");
-        if (btnInstall) {
-            btnInstall.classList.remove("hidden");
-        }
+        document.getElementById("btnInstallPwa")?.classList.remove("hidden");
     });
 
     document.getElementById("btnInstallPwa")?.addEventListener("click", async () => {
         if (!deferredPrompt) return;
         deferredPrompt.prompt();
         const { outcome } = await deferredPrompt.userChoice;
-        if (outcome === "accepted") {
-            showToast("アプリがホーム画面に追加されました！");
-        }
+        if (outcome === "accepted") showToast("アプリがホーム画面に追加されました！");
         deferredPrompt = null;
         document.getElementById("btnInstallPwa").classList.add("hidden");
     });
@@ -192,16 +179,10 @@ async function loadPrefectureData(codes) {
             displayFeatures = nationalFeaturesCache;
         } else {
             const selectedSet = new Set(codes);
-            displayFeatures = nationalFeaturesCache.filter(feature => {
-                const prefCode = getFeaturePrefCode(feature);
-                return selectedSet.has(prefCode);
-            });
+            displayFeatures = nationalFeaturesCache.filter(feature => selectedSet.has(getFeaturePrefCode(feature)));
         }
 
-        currentGeoJsonData = {
-            type: "FeatureCollection",
-            features: displayFeatures
-        };
+        currentGeoJsonData = { type: "FeatureCollection", features: displayFeatures };
 
         renderGeoJson(currentGeoJsonData, nationalFeaturesCache);
         updateUIStats();
@@ -209,7 +190,7 @@ async function loadPrefectureData(codes) {
     } catch (err) {
         console.error("データ取得エラー:", err);
         showLoading(false);
-        showToast("境界データの取得に失敗しました。時間をおいて再試行してください。", "error");
+        showToast("境界データの取得に失敗しました。", "error");
     }
 }
 
@@ -223,13 +204,12 @@ function saveToLocalStorage() {
         localStorage.setItem(STORAGE_KEY_LANDCOLOR, defaultLandColor);
         localStorage.setItem(STORAGE_KEY_ENABLE_OPACITY, JSON.stringify(enableLandOpacity));
         localStorage.setItem(STORAGE_KEY_LANDOPACITY, defaultLandOpacity);
-        if (bgImageDataUrl) {
-            localStorage.setItem(STORAGE_KEY_BGIMAGE, bgImageDataUrl);
-        } else {
-            localStorage.removeItem(STORAGE_KEY_BGIMAGE);
-        }
+        localStorage.setItem(STORAGE_KEY_SHOW_BASEMAP, JSON.stringify(showBaseMap));
+        localStorage.setItem(STORAGE_KEY_TILE_TYPE, selectedTileType);
+        if (bgImageDataUrl) localStorage.setItem(STORAGE_KEY_BGIMAGE, bgImageDataUrl);
+        else localStorage.removeItem(STORAGE_KEY_BGIMAGE);
     } catch (e) {
-        console.warn("LocalStorage への保存に失敗しました:", e);
+        console.warn("LocalStorage 保存エラー:", e);
     }
 }
 
@@ -244,6 +224,8 @@ function loadFromLocalStorage() {
         const savedEnableOpacity = localStorage.getItem(STORAGE_KEY_ENABLE_OPACITY);
         const savedLandOpacity = localStorage.getItem(STORAGE_KEY_LANDOPACITY);
         const savedBgImage = localStorage.getItem(STORAGE_KEY_BGIMAGE);
+        const savedShowBaseMap = localStorage.getItem(STORAGE_KEY_SHOW_BASEMAP);
+        const savedTileType = localStorage.getItem(STORAGE_KEY_TILE_TYPE);
 
         if (savedState) colorState = JSON.parse(savedState) || {};
         if (savedPrefs) selectedPrefCodes = JSON.parse(savedPrefs) || ["ALL"];
@@ -254,8 +236,10 @@ function loadFromLocalStorage() {
         if (savedEnableOpacity !== null) enableLandOpacity = JSON.parse(savedEnableOpacity);
         if (savedLandOpacity !== null) defaultLandOpacity = parseFloat(savedLandOpacity);
         if (savedBgImage) bgImageDataUrl = savedBgImage;
+        if (savedShowBaseMap !== null) showBaseMap = JSON.parse(savedShowBaseMap);
+        if (savedTileType) selectedTileType = savedTileType;
     } catch (e) {
-        console.warn("LocalStorage からの読み込みに失敗しました:", e);
+        console.warn("LocalStorage 読み込みエラー:", e);
     }
 }
 
@@ -264,6 +248,7 @@ function initBoundaryUIValues() {
     applyMapBgColor(mapBgColor);
 
     document.getElementById("landColorPicker").value = defaultLandColor;
+    document.getElementById("chkShowBaseMap").checked = showBaseMap;
 
     const chkOpacity = document.getElementById("chkEnableOpacity");
     chkOpacity.checked = enableLandOpacity;
@@ -273,6 +258,8 @@ function initBoundaryUIValues() {
     rangeOpacity.disabled = !enableLandOpacity;
     document.getElementById("landOpacityVal").textContent = enableLandOpacity ? defaultLandOpacity : "1.00 (不透明)";
 
+    updateTileButtonsUI(selectedTileType);
+
     if (bgImageDataUrl) {
         applyBgImage(bgImageDataUrl);
         document.getElementById("bgImageName").textContent = "背景画像適用中";
@@ -280,11 +267,11 @@ function initBoundaryUIValues() {
     }
 
     const uiMap = [
-        { type: "coast", chk: "chkCoastBoundary", color: "colorCoastBoundary", weight: "weightCoastBoundary", style: "styleCoastBoundary" },
-        { type: "pref", chk: "chkPrefBoundary", color: "colorPrefBoundary", weight: "weightPrefBoundary", style: "stylePrefBoundary" },
-        { type: "city", chk: "chkCityBoundary", color: "colorCityBoundary", weight: "weightCityBoundary", style: "styleCityBoundary" },
-        { type: "county", chk: "chkCountyBoundary", color: "colorCountyBoundary", weight: "weightCountyBoundary", style: "styleCountyBoundary" },
-        { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", weight: "weightWardBoundary", style: "styleWardBoundary" }
+        { type: "coast", chk: "chkCoastBoundary", color: "colorCoastBoundary", weight: "weightCoastBoundary" },
+        { type: "pref", chk: "chkPrefBoundary", color: "colorPrefBoundary", weight: "weightPrefBoundary" },
+        { type: "city", chk: "chkCityBoundary", color: "colorCityBoundary", weight: "weightCityBoundary" },
+        { type: "county", chk: "chkCountyBoundary", color: "colorCountyBoundary", style: "styleCountyBoundary" },
+        { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", style: "styleWardBoundary" }
     ];
 
     uiMap.forEach(item => {
@@ -292,8 +279,8 @@ function initBoundaryUIValues() {
         if (chk && boundarySettings[item.type]) {
             chk.checked = boundarySettings[item.type].show;
             document.getElementById(item.color).value = boundarySettings[item.type].color;
-            document.getElementById(item.weight).value = boundarySettings[item.type].weight;
-            document.getElementById(item.style).value = boundarySettings[item.type].style;
+            if (item.weight) document.getElementById(item.weight).value = boundarySettings[item.type].weight;
+            if (item.style) document.getElementById(item.style).value = boundarySettings[item.type].style;
         }
     });
 }
@@ -320,54 +307,21 @@ function applyBgImage(url) {
 function isIslandMunicipality(code, props = null) {
     const strCode = String(code).trim();
     const numCode = parseInt(strCode, 10);
-
-    let propText = "";
-    if (props) {
-        propText = Object.values(props).map(v => (v !== null && v !== undefined) ? String(v) : "").join(" ");
-    }
+    let propText = props ? Object.values(props).map(v => (v !== null && v !== undefined) ? String(v) : "").join(" ") : "";
 
     const isTokyo = strCode.startsWith("13") || propText.includes("東京都");
-
     if (isTokyo) {
-        if (propText.includes("支庁")) return "13";
-        if (!isNaN(numCode) && numCode >= 13361 && numCode <= 13421) return "13";
-
+        if (propText.includes("支庁") || (!isNaN(numCode) && numCode >= 13361 && numCode <= 13421)) return "13";
         const islandKeywords = ["大島", "利島", "新島", "神津島", "三宅", "御蔵島", "八丈", "青ヶ島", "小笠原", "父島", "母島", "硫黄島", "鳥島"];
         if (islandKeywords.some(k => propText.includes(k))) return "13";
-
-        const isUnassigned = propText.includes("未定") || propText.includes("地先") || propText.includes("水面") || strCode === "13000" || strCode === "13100" || strCode === "13300" || strCode === "00000";
-
-        if (isUnassigned) {
-            const bayWards = ["中央区", "港区", "江東区", "品川区", "大田区", "江戸川区", "東京港", "東京湾"];
-            const isBayArea = bayWards.some(w => propText.includes(w));
-            return isBayArea ? null : "13";
-        }
-
         if (["13303", "13305", "13307", "13308"].includes(strCode)) return null;
-
-        const is23Ku = !isNaN(numCode) && numCode >= 13101 && numCode <= 13123;
-        const isCity = !isNaN(numCode) && numCode >= 13201 && numCode <= 13229;
-        if (is23Ku || isCity) return null;
-
+        if (!isNaN(numCode) && numCode >= 13101 && numCode <= 13229) return null;
         return "13";
     }
 
-    if (strCode === "46213" || strCode === "46222" || 
-        strCode === "46303" || strCode === "46304" || 
-        (!isNaN(numCode) && numCode >= 46500 && numCode <= 46599) ||
-        (props && (propText.includes("奄美") || propText.includes("大島郡") || propText.includes("熊毛郡") || propText.includes("屋久島") || propText.includes("種子島")))) {
-        return "46";
-    }
-
-    const okinawaIslands = [
-        "47207", "47214", "47315", "47353", "47354", "47355", 
-        "47357", "47358", "47359", "47360", "47361", 
-        "47375", "47381", "47382"
-    ];
-    if (okinawaIslands.includes(strCode) || 
-        (props && (propText.includes("宮古") || propText.includes("八重山") || propText.includes("石垣") || propText.includes("久米島") || propText.includes("渡嘉敷") || propText.includes("座間味") || propText.includes("粟国") || propText.includes("渡名喜") || propText.includes("南大東") || propText.includes("北大東") || propText.includes("伊平屋") || propText.includes("伊江") || propText.includes("竹富") || propText.includes("与那国")))) {
-        return "47";
-    }
+    if (strCode === "46213" || strCode === "46222" || strCode === "46303" || strCode === "46304" || (!isNaN(numCode) && numCode >= 46500 && numCode <= 46599)) return "46";
+    const okinawaIslands = ["47207", "47214", "47315", "47353", "47354", "47355", "47357", "47358", "47359", "47360", "47361", "47375", "47381", "47382"];
+    if (okinawaIslands.includes(strCode)) return "47";
 
     return null;
 }
@@ -391,9 +345,7 @@ function initPrefModalUI() {
                     <span class="text-xs font-bold text-slate-800">${region.name}</span>
                     <button type="button" class="region-select-toggle text-[11px] text-indigo-600 hover:underline font-semibold" data-region-id="${region.id}">この地方を選択</button>
                 </div>
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-1">
-                    ${prefCheckboxes}
-                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-1">${prefCheckboxes}</div>
             </div>
         `;
     }).join("");
@@ -404,16 +356,12 @@ function initPrefModalUI() {
 
     gridEl.querySelectorAll(".region-select-toggle").forEach(btn => {
         btn.addEventListener("click", () => {
-            const regionId = btn.getAttribute("data-region-id");
-            const region = REGIONS.find(r => r.id === regionId);
+            const region = REGIONS.find(r => r.id === btn.getAttribute("data-region-id"));
             if (region) {
                 const allSelected = region.codes.every(c => tempSelectedCodes.includes(c));
-                if (allSelected) {
-                    tempSelectedCodes = tempSelectedCodes.filter(c => !region.codes.includes(c));
-                } else {
-                    region.codes.forEach(c => {
-                        if (!tempSelectedCodes.includes(c)) tempSelectedCodes.push(c);
-                    });
+                if (allSelected) tempSelectedCodes = tempSelectedCodes.filter(c => !region.codes.includes(c));
+                else {
+                    region.codes.forEach(c => { if (!tempSelectedCodes.includes(c)) tempSelectedCodes.push(c); });
                     tempSelectedCodes = tempSelectedCodes.filter(c => c !== "ALL");
                 }
                 syncCheckboxesFromTemp();
@@ -424,11 +372,9 @@ function initPrefModalUI() {
     document.querySelectorAll("#regionButtons .region-btn").forEach(btn => {
         btn.addEventListener("click", () => {
             const reg = btn.getAttribute("data-region");
-            if (reg === "ALL") {
-                tempSelectedCodes = ["ALL"];
-            } else if (reg === "CLEAR") {
-                tempSelectedCodes = [];
-            } else {
+            if (reg === "ALL") tempSelectedCodes = ["ALL"];
+            else if (reg === "CLEAR") tempSelectedCodes = [];
+            else {
                 const region = REGIONS.find(r => r.id === reg);
                 if (region) tempSelectedCodes = [...region.codes];
             }
@@ -476,39 +422,28 @@ function closePrefModal() {
 
 function updateTempSelectedFromCheckboxes() {
     const checked = Array.from(document.querySelectorAll(".pref-checkbox:checked")).map(cb => cb.value);
-    if (checked.length === 47 || checked.length === 0) {
-        tempSelectedCodes = ["ALL"];
-    } else {
-        tempSelectedCodes = checked;
-    }
+    tempSelectedCodes = (checked.length === 47 || checked.length === 0) ? ["ALL"] : checked;
     updateModalFooterCount();
 }
 
 function syncCheckboxesFromTemp() {
     const isAll = tempSelectedCodes.includes("ALL") || tempSelectedCodes.length === 47;
-    document.querySelectorAll(".pref-checkbox").forEach(cb => {
-        cb.checked = isAll || tempSelectedCodes.includes(cb.value);
-    });
+    document.querySelectorAll(".pref-checkbox").forEach(cb => cb.checked = isAll || tempSelectedCodes.includes(cb.value));
     updateModalFooterCount();
 }
 
 function updateModalFooterCount() {
     const isAll = tempSelectedCodes.includes("ALL") || tempSelectedCodes.length === 47;
     const countEl = document.getElementById("modalSelectedCount");
-    if (isAll) {
-        countEl.textContent = "全国（すべての都道府県）";
-    } else if (tempSelectedCodes.length === 0) {
-        countEl.textContent = "未選択（全国を表示）";
-    } else {
-        countEl.textContent = `${getSelectedPrefLabel(tempSelectedCodes)} (${tempSelectedCodes.length}都道府県)`;
-    }
+    if (isAll) countEl.textContent = "全国（すべての都道府県）";
+    else if (tempSelectedCodes.length === 0) countEl.textContent = "未選択（全国を表示）";
+    else countEl.textContent = `${getSelectedPrefLabel(tempSelectedCodes)} (${tempSelectedCodes.length}都道府県)`;
 }
 
 function updateHeaderPrefButton() {
     const labelEl = document.getElementById("selectedPrefLabel");
     const badgeEl = document.getElementById("selectedPrefBadge");
-    const label = getSelectedPrefLabel(selectedPrefCodes);
-    labelEl.textContent = label;
+    labelEl.textContent = getSelectedPrefLabel(selectedPrefCodes);
 
     if (selectedPrefCodes.includes("ALL") || selectedPrefCodes.length === 47) {
         badgeEl.classList.add("hidden");
@@ -519,17 +454,10 @@ function updateHeaderPrefButton() {
 }
 
 function getSelectedPrefLabel(codes) {
-    if (!codes || codes.includes("ALL") || codes.length === 47 || codes.length === 0) {
-        return "全国（日本全体）";
-    }
-    if (codes.length === 1) {
-        return getPrefName(codes[0]);
-    }
+    if (!codes || codes.includes("ALL") || codes.length === 47 || codes.length === 0) return "全国（日本全体）";
+    if (codes.length === 1) return getPrefName(codes[0]);
     const names = codes.map(c => getPrefName(c));
-    if (codes.length <= 2) {
-        return names.join("・");
-    }
-    return `${names[0]}・${names[1]} 外${codes.length - 2}県`;
+    return codes.length <= 2 ? names.join("・") : `${names[0]}・${names[1]} 外${codes.length - 2}県`;
 }
 
 function initColorPalette() {
@@ -549,15 +477,10 @@ function initColorPalette() {
 function setColor(color) {
     selectedColor = color;
     document.getElementById("customColorPicker").value = color;
-    
     document.querySelectorAll(".color-swatch").forEach(btn => {
-        if (btn.getAttribute("data-color") === color) {
-            btn.classList.add("ring-2", "ring-indigo-600", "ring-offset-2");
-        } else {
-            btn.classList.remove("ring-2", "ring-indigo-600", "ring-offset-2");
-        }
+        if (btn.getAttribute("data-color") === color) btn.classList.add("ring-2", "ring-indigo-600", "ring-offset-2");
+        else btn.classList.remove("ring-2", "ring-indigo-600", "ring-offset-2");
     });
-
     setToolMode("paint");
 }
 
@@ -565,7 +488,6 @@ function setToolMode(mode) {
     activeTool = mode;
     const btnPaint = document.getElementById("btnPaintMode");
     const btnEraser = document.getElementById("btnEraserMode");
-
     if (mode === "paint") {
         btnPaint.className = "flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg border border-indigo-600 bg-indigo-50 text-indigo-700 transition shadow-sm";
         btnEraser.className = "flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition";
@@ -575,6 +497,7 @@ function setToolMode(mode) {
     }
 }
 
+// --- Leaflet Map 初期化とレイヤーPane設定 ---
 function initMap() {
     map = L.map("map", {
         zoomControl: false,
@@ -584,11 +507,41 @@ function initMap() {
 
     L.control.zoom({ position: "bottomright" }).addTo(map);
 
-    currentTileLayer = L.tileLayer(TILE_LAYERS.pale, {
-        maxZoom: 18,
-        crossOrigin: true,
-        attribution: '&copy; <a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a>'
-    }).addTo(map);
+    // ★ Leaflet描画階層 (Pane) を作成して階層構造を厳格制御 ★
+    map.createPane("landPane");
+    map.getPane("landPane").style.zIndex = 400;
+
+    map.createPane("boundaryPane");
+    map.getPane("boundaryPane").style.zIndex = 500;
+
+    updateTileLayer(selectedTileType);
+}
+
+function updateTileLayer(tileType) {
+    selectedTileType = tileType;
+    if (currentTileLayer) {
+        map.removeLayer(currentTileLayer);
+        currentTileLayer = null;
+    }
+
+    if (showBaseMap && tileType !== "none" && TILE_LAYERS[tileType]) {
+        currentTileLayer = L.tileLayer(TILE_LAYERS[tileType], {
+            maxZoom: 18,
+            crossOrigin: true
+        }).addTo(map);
+    }
+}
+
+function updateTileButtonsUI(tileType) {
+    document.querySelectorAll(".tile-btn").forEach(b => {
+        if (b.getAttribute("data-tile") === tileType) {
+            b.classList.add("active", "bg-white", "text-indigo-600", "shadow-sm");
+            b.classList.remove("text-slate-600");
+        } else {
+            b.classList.remove("active", "bg-white", "text-indigo-600", "shadow-sm");
+            b.classList.add("text-slate-600");
+        }
+    });
 }
 
 function bindEvents() {
@@ -609,6 +562,23 @@ function bindEvents() {
     document.getElementById("bgColorPicker").addEventListener("input", (e) => {
         applyMapBgColor(e.target.value);
         saveToLocalStorage();
+    });
+
+    // ベースマップ表示制御
+    document.getElementById("chkShowBaseMap").addEventListener("change", (e) => {
+        showBaseMap = e.target.checked;
+        updateTileLayer(selectedTileType);
+        saveToLocalStorage();
+    });
+
+    // ベースマップタイプ切り替え
+    document.querySelectorAll(".tile-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const tileType = btn.getAttribute("data-tile");
+            updateTileButtonsUI(tileType);
+            updateTileLayer(tileType);
+            saveToLocalStorage();
+        });
     });
 
     // 陸の色（未塗りエリア）設定
@@ -657,97 +627,60 @@ function bindEvents() {
     document.getElementById("btnRemoveBgImage").addEventListener("click", () => {
         bgImageDataUrl = null;
         applyBgImage(null);
-        document.getElementById("bgImageName").textContent = "画像を選択...";
+        document.getElementById("bgImageName").textContent = "背景画像を選択...";
         document.getElementById("btnRemoveBgImage").classList.add("hidden");
         document.getElementById("bgImageInput").value = "";
         saveToLocalStorage();
         showToast("背景画像を削除しました");
     });
 
+    // 境界線コントロール
     const boundaryUIKeys = [
-        { type: "coast", chk: "chkCoastBoundary", color: "colorCoastBoundary", weight: "weightCoastBoundary", style: "styleCoastBoundary" },
-        { type: "pref", chk: "chkPrefBoundary", color: "colorPrefBoundary", weight: "weightPrefBoundary", style: "stylePrefBoundary" },
-        { type: "city", chk: "chkCityBoundary", color: "colorCityBoundary", weight: "weightCityBoundary", style: "styleCityBoundary" },
-        { type: "county", chk: "chkCountyBoundary", color: "colorCountyBoundary", weight: "weightCountyBoundary", style: "styleCountyBoundary" },
-        { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", weight: "weightWardBoundary", style: "styleWardBoundary" }
+        { type: "coast", chk: "chkCoastBoundary", color: "colorCoastBoundary", weight: "weightCoastBoundary" },
+        { type: "pref", chk: "chkPrefBoundary", color: "colorPrefBoundary", weight: "weightPrefBoundary" },
+        { type: "city", chk: "chkCityBoundary", color: "colorCityBoundary", weight: "weightCityBoundary" },
+        { type: "county", chk: "chkCountyBoundary", color: "colorCountyBoundary", style: "styleCountyBoundary" },
+        { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", style: "styleWardBoundary" }
     ];
 
     boundaryUIKeys.forEach(item => {
         const chkEl = document.getElementById(item.chk);
         if (!chkEl) return;
 
-        const updateBoundarySetting = () => {
+        const updateSetting = () => {
             boundarySettings[item.type] = {
                 show: chkEl.checked,
                 color: document.getElementById(item.color).value,
-                weight: parseFloat(document.getElementById(item.weight).value),
-                style: document.getElementById(item.style).value
+                weight: parseFloat(document.getElementById(item.weight)?.value || 1),
+                style: document.getElementById(item.style)?.value || "solid"
             };
             renderBoundaryLayers();
             saveToLocalStorage();
         };
 
-        chkEl.addEventListener("change", updateBoundarySetting);
-        document.getElementById(item.color)?.addEventListener("input", updateBoundarySetting);
-        document.getElementById(item.weight)?.addEventListener("change", updateBoundarySetting);
-        document.getElementById(item.style)?.addEventListener("change", updateBoundarySetting);
-    });
-
-    document.querySelectorAll(".tile-btn").forEach(btn => {
-        btn.addEventListener("click", () => {
-            const tileType = btn.getAttribute("data-tile");
-            document.querySelectorAll(".tile-btn").forEach(b => {
-                b.classList.remove("active", "bg-white", "text-indigo-600", "shadow-sm");
-                b.classList.add("text-slate-600");
-            });
-            btn.classList.add("active", "bg-white", "text-indigo-600", "shadow-sm");
-            btn.classList.remove("text-slate-600");
-
-            if (currentTileLayer) {
-                map.removeLayer(currentTileLayer);
-                currentTileLayer = null;
-            }
-
-            if (tileType !== "none" && TILE_LAYERS[tileType]) {
-                currentTileLayer = L.tileLayer(TILE_LAYERS[tileType], {
-                    maxZoom: 18,
-                    crossOrigin: true,
-                    attribution: '&copy; <a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a>'
-                }).addTo(map);
-            }
-        });
+        chkEl.addEventListener("change", updateSetting);
+        document.getElementById(item.color)?.addEventListener("input", updateSetting);
+        document.getElementById(item.weight)?.addEventListener("change", updateSetting);
+        document.getElementById(item.style)?.addEventListener("change", updateSetting);
     });
 }
 
 function renderGeoJson(data, topologyFeatures) {
-    if (geojsonLayer) {
-        map.removeLayer(geojsonLayer);
-    }
+    if (geojsonLayer) map.removeLayer(geojsonLayer);
 
     currentCityMap = {};
 
     const filteredFeatures = data.features.filter(feature => {
         const code = getCityCode(feature.properties);
         const islandPrefCode = isIslandMunicipality(code, feature.properties);
-        if (islandPrefCode && includeIslands[islandPrefCode] === false) {
-            return false;
-        }
-        return true;
+        return !(islandPrefCode && includeIslands[islandPrefCode] === false);
     });
 
     const filteredTopology = (topologyFeatures || data.features).filter(feature => {
         const code = getCityCode(feature.properties);
         const islandPrefCode = isIslandMunicipality(code, feature.properties);
-        if (islandPrefCode && includeIslands[islandPrefCode] === false) {
-            return false;
-        }
-        return true;
+        return !(islandPrefCode && includeIslands[islandPrefCode] === false);
     });
-
-    const filteredGeoJson = {
-        type: "FeatureCollection",
-        features: filteredFeatures
-    };
 
     const selectedSet = new Set(
         selectedPrefCodes.includes("ALL") ? PREFECTURES.map(p => p.code) : selectedPrefCodes
@@ -755,7 +688,8 @@ function renderGeoJson(data, topologyFeatures) {
 
     extractBoundaries(filteredTopology, selectedSet);
 
-    geojsonLayer = L.geoJSON(filteredGeoJson, {
+    geojsonLayer = L.geoJSON({ type: "FeatureCollection", features: filteredFeatures }, {
+        pane: "landPane",
         style: featureStyle,
         onEachFeature: (feature, layer) => {
             const props = feature.properties;
@@ -768,9 +702,8 @@ function renderGeoJson(data, topologyFeatures) {
 
             layer.on({
                 mouseover: (e) => {
-                    const l = e.target;
                     const opacity = enableLandOpacity ? Math.min(1.0, defaultLandOpacity + 0.2) : 1.0;
-                    l.setStyle({ fillOpacity: opacity });
+                    e.target.setStyle({ fillOpacity: opacity });
                     showHoverCard(true, prefName, name, code);
                 },
                 mouseout: (e) => {
@@ -798,81 +731,53 @@ function extractBoundaries(topologyFeatures, selectedPrefSet) {
         const cityCode = paddedCode || "00000";
         const isWard = Boolean(props.N03_005) || (props.N03_004 && String(props.N03_004).endsWith("区") && props.N03_003 && String(props.N03_003).endsWith("市"));
         const seireiName = isWard ? (props.N03_003 || "") : null;
-        
         const countyName = (!isWard && props.N03_003 && String(props.N03_003).endsWith("郡")) ? props.N03_003 : null;
 
         const meta = { prefCode, cityCode, seireiName, countyName };
 
         function processRing(ring) {
             for (let i = 0; i < ring.length - 1; i++) {
-                const p1 = ring[i];
-                const p2 = ring[i + 1];
-
-                const x1 = Math.round(p1[0] * SCALE);
-                const y1 = Math.round(p1[1] * SCALE);
-                const x2 = Math.round(p2[0] * SCALE);
-                const y2 = Math.round(p2[1] * SCALE);
-
+                const p1 = ring[i], p2 = ring[i + 1];
+                const x1 = Math.round(p1[0] * SCALE), y1 = Math.round(p1[1] * SCALE);
+                const x2 = Math.round(p2[0] * SCALE), y2 = Math.round(p2[1] * SCALE);
                 if (x1 === x2 && y1 === y2) continue;
 
-                const k1 = `${x1}_${y1}`;
-                const k2 = `${x2}_${y2}`;
+                const k1 = `${x1}_${y1}`, k2 = `${x2}_${y2}`;
                 const key = k1 < k2 ? `${k1}:${k2}` : `${k2}:${k1}`;
 
-                if (!edgeMap.has(key)) {
-                    edgeMap.set(key, { p1, p2, f1: meta, f2: null });
-                } else {
+                if (!edgeMap.has(key)) edgeMap.set(key, { p1, p2, f1: meta, f2: null });
+                else {
                     const existing = edgeMap.get(key);
-                    if (existing.f1.cityCode !== meta.cityCode) {
-                        existing.f2 = meta;
-                    }
+                    if (existing.f1.cityCode !== meta.cityCode) existing.f2 = meta;
                 }
             }
         }
 
         const geom = feature.geometry;
         if (geom) {
-            if (geom.type === "Polygon") {
-                geom.coordinates.forEach(processRing);
-            } else if (geom.type === "MultiPolygon") {
-                geom.coordinates.forEach(poly => poly.forEach(processRing));
-            }
+            if (geom.type === "Polygon") geom.coordinates.forEach(processRing);
+            else if (geom.type === "MultiPolygon") geom.coordinates.forEach(poly => poly.forEach(processRing));
         }
     });
 
-    const coastLines = [];
-    const prefLines = [];
-    const cityLines = [];
-    const countyLines = [];
-    const wardLines = [];
+    const coastLines = [], prefLines = [], cityLines = [], countyLines = [], wardLines = [];
 
     edgeMap.forEach(({ p1, p2, f1, f2 }) => {
         const f1Selected = f1 && selectedPrefSet.has(f1.prefCode);
         const f2Selected = f2 && selectedPrefSet.has(f2.prefCode);
-
         if (!f1Selected && !f2Selected) return;
 
         if (f2) {
-            if (f1.prefCode !== f2.prefCode) {
-                prefLines.push([p1, p2]);
-            } else if (f1.cityCode !== f2.cityCode) {
-                if (f1Selected && f2Selected) {
-                    if (f1.seireiName && f2.seireiName && f1.seireiName === f2.seireiName) {
-                        wardLines.push([p1, p2]);
-                    } else if (f1.countyName && f2.countyName && f1.countyName === f2.countyName) {
-                        countyLines.push([p1, p2]);
-                    } else {
-                        cityLines.push([p1, p2]);
-                    }
-                }
+            if (f1.prefCode !== f2.prefCode) prefLines.push([p1, p2]);
+            else if (f1.cityCode !== f2.cityCode && f1Selected && f2Selected) {
+                if (f1.seireiName && f2.seireiName && f1.seireiName === f2.seireiName) wardLines.push([p1, p2]);
+                else if (f1.countyName && f2.countyName && f1.countyName === f2.countyName) countyLines.push([p1, p2]);
+                else cityLines.push([p1, p2]);
             }
         } else {
             const activeMeta = f1Selected ? f1 : f2;
-            if (LANDLOCKED_PREFS.has(activeMeta.prefCode)) {
-                prefLines.push([p1, p2]);
-            } else {
-                coastLines.push([p1, p2]);
-            }
+            if (LANDLOCKED_PREFS.has(activeMeta.prefCode)) prefLines.push([p1, p2]);
+            else coastLines.push([p1, p2]);
         }
     });
 
@@ -901,6 +806,7 @@ function renderBoundaryLayers() {
             else if (setting.style === "dotted") dashArray = "2, 3";
 
             boundaryLayers[type] = L.geoJSON(geojson, {
+                pane: "boundaryPane",
                 style: {
                     color: setting.color,
                     weight: setting.weight,
@@ -911,49 +817,25 @@ function renderBoundaryLayers() {
                     interactive: false
                 }
             }).addTo(map);
-
-            if (boundaryLayers[type].bringToFront) {
-                boundaryLayers[type].bringToFront();
-            }
         }
     });
 }
 
-function bringBoundariesToFront() {
-    ["ward", "county", "city", "pref", "coast"].forEach(type => {
-        if (boundaryLayers[type] && boundaryLayers[type].bringToFront) {
-            boundaryLayers[type].bringToFront();
-        }
-    });
-}
-
-// 陸地スタイルの決定（透過有効フラグに応じた透明度の計算）
 function featureStyle(feature) {
     const code = getCityCode(feature.properties);
     const colored = colorState[code];
     const fillOpacity = enableLandOpacity ? defaultLandOpacity : 1.0;
 
-    if (colored) {
-        return {
-            fillColor: colored,
-            fillOpacity: fillOpacity,
-            stroke: false
-        };
-    } else {
-        return {
-            fillColor: defaultLandColor,
-            fillOpacity: fillOpacity,
-            stroke: false
-        };
-    }
+    return {
+        fillColor: colored || defaultLandColor,
+        fillOpacity: fillOpacity,
+        stroke: false
+    };
 }
 
 function handleCityClick(code) {
-    if (activeTool === "paint") {
-        colorState[code] = selectedColor;
-    } else {
-        delete colorState[code];
-    }
+    if (activeTool === "paint") colorState[code] = selectedColor;
+    else delete colorState[code];
 
     geojsonLayer.eachLayer(layer => {
         if (getCityCode(layer.feature.properties) === code) {
@@ -961,16 +843,12 @@ function handleCityClick(code) {
         }
     });
 
-    bringBoundariesToFront();
-
     saveToLocalStorage();
     updateUIStats();
 }
 
 function fillAllCurrentPref() {
-    Object.keys(currentCityMap).forEach(code => {
-        colorState[code] = selectedColor;
-    });
+    Object.keys(currentCityMap).forEach(code => colorState[code] = selectedColor);
     refreshLayerStyles();
     saveToLocalStorage();
     updateUIStats();
@@ -978,9 +856,7 @@ function fillAllCurrentPref() {
 }
 
 function clearAllCurrentPref() {
-    Object.keys(currentCityMap).forEach(code => {
-        delete colorState[code];
-    });
+    Object.keys(currentCityMap).forEach(code => delete colorState[code]);
     refreshLayerStyles();
     saveToLocalStorage();
     updateUIStats();
@@ -989,10 +865,7 @@ function clearAllCurrentPref() {
 
 function refreshLayerStyles() {
     if (!geojsonLayer) return;
-    geojsonLayer.eachLayer(layer => {
-        layer.setStyle(featureStyle(layer.feature));
-    });
-    bringBoundariesToFront();
+    geojsonLayer.eachLayer(layer => layer.setStyle(featureStyle(layer.feature)));
 }
 
 function fitToCurrentBounds() {
@@ -1002,8 +875,7 @@ function fitToCurrentBounds() {
 }
 
 function updateUIStats() {
-    const prefName = getSelectedPrefLabel(selectedPrefCodes);
-    document.getElementById("currentPrefName").textContent = prefName;
+    document.getElementById("currentPrefName").textContent = getSelectedPrefLabel(selectedPrefCodes);
 
     const allCodes = Object.keys(currentCityMap);
     const total = allCodes.length;
@@ -1102,7 +974,6 @@ function showToast(message, type = "info") {
     lucide.createIcons();
 
     setTimeout(() => toast.classList.remove("translate-y-2", "opacity-0"), 10);
-
     setTimeout(() => {
         toast.classList.add("opacity-0", "translate-y-2");
         setTimeout(() => toast.remove(), 300);
@@ -1117,19 +988,19 @@ function exportStateJson() {
         defaultLandColor: defaultLandColor,
         enableLandOpacity: enableLandOpacity,
         defaultLandOpacity: defaultLandOpacity,
-        mapBgColor: mapBgColor
+        mapBgColor: mapBgColor,
+        showBaseMap: showBaseMap,
+        selectedTileType: selectedTileType
     };
     const jsonStr = JSON.stringify(exportData, null, 2);
     const blob = new Blob([jsonStr], { type: "application/json" });
     const url = URL.createObjectURL(blob);
-    
     const a = document.createElement("a");
     a.href = url;
     a.download = `japan_map_color_${new Date().toISOString().slice(0,10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
-
-    showToast("塗り状態をJSONファイルに保存しました");
+    showToast("設定をJSONに保存しました");
 }
 
 function importStateJson(e) {
@@ -1146,15 +1017,16 @@ function importStateJson(e) {
                 if (data.enableLandOpacity !== undefined) enableLandOpacity = data.enableLandOpacity;
                 if (data.defaultLandOpacity !== undefined) defaultLandOpacity = parseFloat(data.defaultLandOpacity);
                 if (data.mapBgColor) mapBgColor = data.mapBgColor;
+                if (data.showBaseMap !== undefined) showBaseMap = data.showBaseMap;
+                if (data.selectedTileType) selectedTileType = data.selectedTileType;
 
                 initBoundaryUIValues();
+                updateTileLayer(selectedTileType);
                 refreshLayerStyles();
                 saveToLocalStorage();
                 updateUIStats();
-                showToast("JSONから設定と塗り状態を復元しました");
-            } else {
-                throw new Error("無効なJSONデータ構造です");
-            }
+                showToast("JSONから復元しました");
+            } else throw new Error("無効なJSON");
         } catch (err) {
             showToast("ファイルの読み込みに失敗しました", "error");
         }
@@ -1165,37 +1037,26 @@ function importStateJson(e) {
 
 function exportMapImage() {
     showLoading(true, "高解像度画像を生成中...");
-
     if (!map || !geojsonLayer) {
         showLoading(false);
         return;
     }
-
     map.invalidateSize();
-
     const bounds = geojsonLayer.getBounds();
-    if (bounds.isValid()) {
-        map.fitBounds(bounds, { padding: [50, 50], animate: false });
-    }
+    if (bounds.isValid()) map.fitBounds(bounds, { padding: [50, 50], animate: false });
 
     setTimeout(() => {
         leafletImage(map, function(err, canvas) {
             if (err || !canvas) {
-                console.error("leafletImage error:", err);
                 const mapContainer = document.getElementById("map");
-                html2canvas(mapContainer, {
-                    useCORS: true,
-                    allowTaint: true,
-                    logging: false
-                }).then(fallbackCanvas => {
-                    saveCanvasAsImage(fallbackCanvas);
-                }).catch(e => {
-                    showLoading(false);
-                    showToast("画像の生成に失敗しました", "error");
-                });
+                html2canvas(mapContainer, { useCORS: true, allowTaint: true, logging: false })
+                    .then(fallbackCanvas => saveCanvasAsImage(fallbackCanvas))
+                    .catch(() => {
+                        showLoading(false);
+                        showToast("画像の生成に失敗しました", "error");
+                    });
                 return;
             }
-
             saveCanvasAsImage(canvas);
         });
     }, 300);
@@ -1254,10 +1115,7 @@ function exportMapSvg() {
             const exportFeatures = currentGeoJsonData.features.filter(feature => {
                 const code = getCityCode(feature.properties);
                 const islandPrefCode = isIslandMunicipality(code, feature.properties);
-                if (islandPrefCode && includeIslands[islandPrefCode] === false) {
-                    return false;
-                }
-                return true;
+                return !(islandPrefCode && includeIslands[islandPrefCode] === false);
             });
 
             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -1270,21 +1128,16 @@ function exportMapSvg() {
                     if (mx > maxX) maxX = mx;
                     if (my < minY) minY = my;
                     if (my > maxY) maxY = my;
-                } else {
-                    coords.forEach(processCoords);
-                }
+                } else coords.forEach(processCoords);
             }
 
             exportFeatures.forEach(f => {
-                if (f.geometry && f.geometry.coordinates) {
-                    processCoords(f.geometry.coordinates);
-                }
+                if (f.geometry && f.geometry.coordinates) processCoords(f.geometry.coordinates);
             });
 
             const viewBoxWidth = 1200;
             const padding = 20;
-            const mercWidth = maxX - minX;
-            const mercHeight = maxY - minY;
+            const mercWidth = maxX - minX, mercHeight = maxY - minY;
             const scale = (viewBoxWidth - 2 * padding) / mercWidth;
             const viewBoxHeight = Math.round(mercHeight * scale + 2 * padding);
 
@@ -1295,22 +1148,14 @@ function exportMapSvg() {
                 return `${sx},${sy}`;
             }
 
-            function ringToD(ring) {
-                return "M " + ring.map(project).join(" L ") + " Z";
-            }
-
+            function ringToD(ring) { return "M " + ring.map(project).join(" L ") + " Z"; }
             function geomToD(geom) {
-                if (geom.type === "Polygon") {
-                    return geom.coordinates.map(ringToD).join(" ");
-                } else if (geom.type === "MultiPolygon") {
-                    return geom.coordinates.map(poly => poly.map(ringToD).join(" ")).join(" ");
-                }
+                if (geom.type === "Polygon") return geom.coordinates.map(ringToD).join(" ");
+                else if (geom.type === "MultiPolygon") return geom.coordinates.map(poly => poly.map(ringToD).join(" ")).join(" ");
                 return "";
             }
 
-            function lineToD(lines) {
-                return lines.map(line => `M ${project(line[0])} L ${project(line[1])}`).join(" ");
-            }
+            function lineToD(lines) { return lines.map(line => `M ${project(line[0])} L ${project(line[1])}`).join(" "); }
 
             let pathsHtml = "";
             const fillOpacity = enableLandOpacity ? defaultLandOpacity : 1.0;
@@ -1325,9 +1170,7 @@ function exportMapSvg() {
                 const fillColor = colored ? colorState[code] : defaultLandColor;
                 const d = geomToD(feature.geometry);
 
-                if (d) {
-                    pathsHtml += `    <path d="${d}" fill="${fillColor}" fill-opacity="${fillOpacity}" stroke="none" data-code="${code}" data-name="${name}" data-pref="${prefName}"><title>${prefName} ${name}</title></path>\n`;
-                }
+                if (d) pathsHtml += `    <path d="${d}" fill="${fillColor}" fill-opacity="${fillOpacity}" stroke="none" data-code="${code}" data-name="${name}" data-pref="${prefName}"><title>${prefName} ${name}</title></path>\n`;
             });
 
             let boundarySvgHtml = "";
@@ -1340,16 +1183,12 @@ function exportMapSvg() {
                     else if (setting.style === "dotted") dashAttr = 'stroke-dasharray="2,3"';
 
                     const d = lineToD(geojson.geometry.coordinates);
-                    if (d) {
-                        boundarySvgHtml += `    <path d="${d}" fill="none" stroke="${setting.color}" stroke-width="${setting.weight}" ${dashAttr} stroke-linecap="round" stroke-linejoin="round"/>\n`;
-                    }
+                    if (d) boundarySvgHtml += `    <path d="${d}" fill="none" stroke="${setting.color}" stroke-width="${setting.weight}" ${dashAttr} stroke-linecap="round" stroke-linejoin="round"/>\n`;
                 }
             });
 
             let bgImageSvg = "";
-            if (bgImageDataUrl) {
-                bgImageSvg = `  <image href="${bgImageDataUrl}" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />\n`;
-            }
+            if (bgImageDataUrl) bgImageSvg = `  <image href="${bgImageDataUrl}" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />\n`;
 
             const svgString = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${viewBoxWidth} ${viewBoxHeight}" width="${viewBoxWidth}" height="${viewBoxHeight}">
@@ -1367,8 +1206,7 @@ ${boundarySvgHtml}  </g>
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            const labelName = getSelectedPrefLabel(selectedPrefCodes);
-            a.download = `japan_map_${labelName}_${new Date().toISOString().slice(0,10)}.svg`;
+            a.download = `japan_map_${getSelectedPrefLabel(selectedPrefCodes)}_${new Date().toISOString().slice(0,10)}.svg`;
             a.click();
             URL.revokeObjectURL(url);
 
