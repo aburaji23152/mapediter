@@ -172,117 +172,26 @@ function getFeaturePrefCode(feature) {
     return "";
 }
 
-// --- 鉄道駅LOD (SPARQL エンドポイント) から路線形状を取得 ---
+// --- 鉄道路線データ (2026_1031.geojson) から路線形状を取得 ---
 async function fetchRailwayData() {
     if (railwayGeoJsonCache) return railwayGeoJsonCache;
-    
-    const sparqlQuery = `
-        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-        PREFIX ogc: <http://www.opengis.net/ont/geosparql#>
-        
-        SELECT ?lineLabel ?wkt WHERE {
-          ?line a <https://uedayou.net/jrslod/Class/路線> ;
-                rdfs:label ?lineLabel ;
-                ogc:asWKT ?wkt .
-        }
-    `;
-
-    const endpointUrl = `https://uedayou.net/jrslod/sparql?query=${encodeURIComponent(sparqlQuery)}&format=json`;
 
     try {
-        console.log("鉄道駅LOD SPARQLエンドポイントからデータ取得中...");
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-        const res = await fetch(endpointUrl, { signal: controller.signal });
-        clearTimeout(timeoutId);
+        console.log("鉄道路線データ (2026_1031.geojson) の取得中...");
+        const res = await fetch("./rail_data/2026_1031.geojson");
 
         if (!res.ok) throw new Error(`HTTPエラー status: ${res.status}`);
-        
+
         const data = await res.json();
-        const bindings = data.results?.bindings || [];
-        const features = [];
-
-        bindings.forEach(b => {
-            const wktStr = b.wkt?.value;
-            const label = b.lineLabel?.value || "鉄道路線";
-            if (wktStr) {
-                const geometry = parseWKT(wktStr);
-                if (geometry && geometry.coordinates && geometry.coordinates.length > 0) {
-                    features.push({
-                        type: "Feature",
-                        properties: { name: label },
-                        geometry: geometry
-                    });
-                }
-            }
-        });
-
-        if (features.length === 0) {
-            throw new Error("路線図の形状データを検出できませんでした");
-        }
-
-        railwayGeoJsonCache = { type: "FeatureCollection", features: features };
-        console.log(`鉄道駅LODより ${features.length} 件の路線図データを変換・読み込みました`);
+        railwayGeoJsonCache = data;
+        console.log("鉄道路線データの読み込み完了");
         return railwayGeoJsonCache;
 
     } catch (e) {
-        console.warn("鉄道駅LODデータ取得エラー:", e);
-        const isTimeout = e.name === 'AbortError';
-        showToast(isTimeout ? "鉄道駅LODの取得がタイムアウトしました" : "鉄道駅LODからのデータ取得に失敗しました", "error");
+        console.warn("鉄道路線データ取得エラー:", e);
+        showToast("鉄道路線データの取得に失敗しました", "error");
         return null;
     }
-}
-
-// WKT (Well-Known Text) 形式を GeoJSON 幾何オブジェクトにパースするヘルパー関数 (修正版)
-function parseWKT(wktStr) {
-    if (!wktStr || typeof wktStr !== "string") return null;
-    try {
-        // 先頭の<http...CRS84>やSRID=...などのCRS識別子を除去
-        let cleanWkt = wktStr.replace(/^<[^>]+>\s*/, "").replace(/^SRID=\d+;\s*/i, "").trim();
-
-        // 座標文字列を [lng, lat] 数値配列に変換する関数
-        const parseCoordPair = (str) => {
-            const parts = str.trim().split(/\s+/).map(Number);
-            if (parts.length >= 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
-                return [parts[0], parts[1]];
-            }
-            return null;
-        };
-
-        // LINESTRING
-        if (/^LINESTRING/i.test(cleanWkt)) {
-            const match = cleanWkt.match(/^LINESTRING\s*\((.*)\)$/i);
-            if (!match) return null;
-            const coords = match[1].split(",")
-                .map(parseCoordPair)
-                .filter(Boolean);
-            if (coords.length < 2) return null;
-            return { type: "LineString", coordinates: coords };
-        } 
-        // MULTILINESTRING
-        else if (/^MULTILINESTRING/i.test(cleanWkt)) {
-            const inner = cleanWkt.replace(/^MULTILINESTRING\s*\(/i, "").replace(/\)$/, "").trim();
-            const lineGroups = inner.match(/\([^\(\)]+\)/g);
-            if (!lineGroups) return null;
-
-            const multiCoords = [];
-            for (const group of lineGroups) {
-                const rawPts = group.replace(/[\(\)]/g, "").trim();
-                const coords = rawPts.split(",")
-                    .map(parseCoordPair)
-                    .filter(Boolean);
-                if (coords.length >= 2) {
-                    multiCoords.push(coords);
-                }
-            }
-            if (multiCoords.length === 0) return null;
-            return { type: "MultiLineString", coordinates: multiCoords };
-        }
-    } catch (err) {
-        console.warn("WKTパース例外:", err);
-    }
-    return null;
 }
 
 async function loadPrefectureData(codes) {
@@ -918,7 +827,7 @@ function bindEvents() {
             };
 
             if (item.type === "railway" && chkEl.checked && !boundaryGeoJsons.railway) {
-                showLoading(true, "鉄道駅LODよりデータ取得中...");
+                showLoading(true, "鉄道路線データを取得中...");
                 const data = await fetchRailwayData();
                 showLoading(false);
                 if (data) {
