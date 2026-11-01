@@ -191,7 +191,12 @@ async function fetchRailwayData() {
 
     try {
         console.log("鉄道駅LOD SPARQLエンドポイントからデータ取得中...");
-        const res = await fetch(endpointUrl);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+        const res = await fetch(endpointUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
         if (!res.ok) throw new Error(`HTTPエラー status: ${res.status}`);
         
         const data = await res.json();
@@ -203,7 +208,7 @@ async function fetchRailwayData() {
             const label = b.lineLabel?.value || "鉄道路線";
             if (wktStr) {
                 const geometry = parseWKT(wktStr);
-                if (geometry) {
+                if (geometry && geometry.coordinates && geometry.coordinates.length > 0) {
                     features.push({
                         type: "Feature",
                         properties: { name: label },
@@ -223,34 +228,56 @@ async function fetchRailwayData() {
 
     } catch (e) {
         console.warn("鉄道駅LODデータ取得エラー:", e);
-        showToast("鉄道駅LODからのデータ取得に失敗しました", "error");
+        const isTimeout = e.name === 'AbortError';
+        showToast(isTimeout ? "鉄道駅LODの取得がタイムアウトしました" : "鉄道駅LODからのデータ取得に失敗しました", "error");
         return null;
     }
 }
 
-// WKT (Well-Known Text) 形式を GeoJSON 幾何オブジェクトにパースするヘルパー関数
+// WKT (Well-Known Text) 形式を GeoJSON 幾何オブジェクトにパースするヘルパー関数 (修正版)
 function parseWKT(wktStr) {
+    if (!wktStr || typeof wktStr !== "string") return null;
     try {
-        const cleanWkt = wktStr.trim();
-        
-        if (cleanWkt.startsWith("LINESTRING")) {
-            const coordsStr = cleanWkt.replace(/^LINESTRING\s*\(/i, "").replace(/\)$/, "");
-            const coordinates = coordsStr.split(",").map(pt => {
-                const [lng, lat] = pt.trim().split(/\s+/).map(Number);
-                return [lng, lat];
-            });
-            return { type: "LineString", coordinates: coordinates };
+        // 先頭の<http...CRS84>やSRID=...などのCRS識別子を除去
+        let cleanWkt = wktStr.replace(/^<[^>]+>\s*/, "").replace(/^SRID=\d+;\s*/i, "").trim();
+
+        // 座標文字列を [lng, lat] 数値配列に変換する関数
+        const parseCoordPair = (str) => {
+            const parts = str.trim().split(/\s+/).map(Number);
+            if (parts.length >= 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
+                return [parts[0], parts[1]];
+            }
+            return null;
+        };
+
+        // LINESTRING
+        if (/^LINESTRING/i.test(cleanWkt)) {
+            const match = cleanWkt.match(/^LINESTRING\s*\((.*)\)$/i);
+            if (!match) return null;
+            const coords = match[1].split(",")
+                .map(parseCoordPair)
+                .filter(Boolean);
+            if (coords.length < 2) return null;
+            return { type: "LineString", coordinates: coords };
         } 
-        else if (cleanWkt.startsWith("MULTILINESTRING")) {
-            const linesStr = cleanWkt.replace(/^MULTILINESTRING\s*\(\s*\(/i, "").replace(/\)\s*\)$/, "");
-            const rawLines = linesStr.split(/\)\s*,\s*\(/);
-            const coordinates = rawLines.map(line => {
-                return line.split(",").map(pt => {
-                    const [lng, lat] = pt.trim().split(/\s+/).map(Number);
-                    return [lng, lat];
-                });
-            });
-            return { type: "MultiLineString", coordinates: coordinates };
+        // MULTILINESTRING
+        else if (/^MULTILINESTRING/i.test(cleanWkt)) {
+            const inner = cleanWkt.replace(/^MULTILINESTRING\s*\(/i, "").replace(/\)$/, "").trim();
+            const lineGroups = inner.match(/\([^\(\)]+\)/g);
+            if (!lineGroups) return null;
+
+            const multiCoords = [];
+            for (const group of lineGroups) {
+                const rawPts = group.replace(/[\(\)]/g, "").trim();
+                const coords = rawPts.split(",")
+                    .map(parseCoordPair)
+                    .filter(Boolean);
+                if (coords.length >= 2) {
+                    multiCoords.push(coords);
+                }
+            }
+            if (multiCoords.length === 0) return null;
+            return { type: "MultiLineString", coordinates: multiCoords };
         }
     } catch (err) {
         console.warn("WKTパース例外:", err);
@@ -892,8 +919,14 @@ function bindEvents() {
 
             if (item.type === "railway" && chkEl.checked && !boundaryGeoJsons.railway) {
                 showLoading(true, "鉄道駅LODよりデータ取得中...");
-                boundaryGeoJsons.railway = await fetchRailwayData();
+                const data = await fetchRailwayData();
                 showLoading(false);
+                if (data) {
+                    boundaryGeoJsons.railway = data;
+                } else {
+                    chkEl.checked = false;
+                    boundarySettings.railway.show = false;
+                }
             }
 
             renderBoundaryLayers();
@@ -1459,11 +1492,13 @@ function generateMapSvgString() {
         geojson.features.forEach(f => {
             const geom = f.geometry;
             if (!geom) return;
-            if (geom.type === "LineString") {
-                paths.push("M " + geom.coordinates.map(project).join(" L "));
-            } else if (geom.type === "MultiLineString") {
+            if (geom.type === "LineString" && Array.isArray(geom.coordinates)) {
+                const pts = geom.coordinates.map(project).filter(p => !p.includes("NaN"));
+                if (pts.length >= 2) paths.push("M " + pts.join(" L "));
+            } else if (geom.type === "MultiLineString" && Array.isArray(geom.coordinates)) {
                 geom.coordinates.forEach(coords => {
-                    paths.push("M " + coords.map(project).join(" L "));
+                    const pts = coords.map(project).filter(p => !p.includes("NaN"));
+                    if (pts.length >= 2) paths.push("M " + pts.join(" L "));
                 });
             }
         });
