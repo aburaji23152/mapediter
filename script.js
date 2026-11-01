@@ -102,7 +102,7 @@ const STORAGE_KEY_SHOW_BASEMAP = "japan_map_show_basemap_v1";
 const STORAGE_KEY_TILE_TYPE = "japan_map_tile_type_v1";
 const STORAGE_KEY_CUSTOM_COLORS = "japan_map_custom_colors_v1";
 
-window.onload = function() {
+window.onload = async function() {
     lucide.createIcons();
     initPwaSupport();
     initPrefModalUI();
@@ -114,6 +114,17 @@ window.onload = function() {
     initBoundaryUIValues();
     updateHeaderPrefButton();
     updateModeUI();
+
+    // リロード時に鉄道のチェックがついていれば自動的に路線図データをロード
+    if (boundarySettings.railway && boundarySettings.railway.show) {
+        showLoading(true, "鉄道路線データを取得中...");
+        const data = await fetchRailwayData();
+        showLoading(false);
+        if (data) {
+            boundaryGeoJsons.railway = data;
+        }
+    }
+
     loadPrefectureData(selectedPrefCodes);
 };
 
