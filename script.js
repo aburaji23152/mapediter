@@ -72,14 +72,34 @@ let defaultLandOpacity = 0.45;
 let bgImageDataUrl = null;
 let mapBgColor = "#f1f5f9";
 
-// 境界線 ＆ 鉄道カスタマイズ状態
+// 境界線 カスタマイズ状態
 let boundarySettings = {
     coast: { show: true, color: "#1e293b", weight: 2.0, style: "solid" },
     pref: { show: true, color: "#0f172a", weight: 2.5, style: "solid" },
     city: { show: true, color: "#475569", weight: 1.0, style: "solid" },
     county: { show: true, color: "#64748b", weight: 1.0, style: "dotted" },
-    ward: { show: true, color: "#64748b", weight: 1.0, style: "dashed" },
-    railway: { show: false, color: "#334155", weight: 1.5, style: "solid" }
+    ward: { show: true, color: "#64748b", weight: 1.0, style: "dashed" }
+};
+
+// ==========================================
+// 独立した路線図（鉄道）設定オブジェクト
+// ==========================================
+let railwayConfig = {
+    show: false,
+    defaultStyle: {
+        color: "#334155",
+        weight: 1.5,
+        style: "solid",
+        opacity: 0.95
+    },
+    lineStyles: {
+        // 例: '山手線': { color: '#80C241', weight: 4 },
+        // 例: '中央線': { color: '#FF4500', weight: 3.5 }
+    },
+    segmentStyles: {
+        // 例: '東京-神田': { color: '#FFD700', weight: 6 },
+        // 例: 'SEG-001': { color: '#E60012', weight: 5 }
+    }
 };
 
 let boundaryGeoJsons = { coast: null, pref: null, city: null, county: null, ward: null, railway: null };
@@ -93,6 +113,7 @@ const STORAGE_KEY_COLOR_STATE = "japan_map_color_state_v1";
 const STORAGE_KEY_SELECTED_PREFS = "japan_map_selected_prefs_v1";
 const STORAGE_KEY_ISLANDS = "japan_map_include_islands_v1";
 const STORAGE_KEY_BOUNDARIES = "japan_map_boundaries_v1";
+const STORAGE_KEY_RAILWAY_CONFIG = "japan_map_railway_config_v1";
 const STORAGE_KEY_BGCOLOR = "japan_map_bgcolor_v1";
 const STORAGE_KEY_LANDCOLOR = "japan_map_landcolor_v1";
 const STORAGE_KEY_ENABLE_OPACITY = "japan_map_enable_opacity_v1";
@@ -115,14 +136,9 @@ window.onload = async function() {
     updateHeaderPrefButton();
     updateModeUI();
 
-    // リロード時に鉄道のチェックがついていれば自動的に路線図データをロード
-    if (boundarySettings.railway && boundarySettings.railway.show) {
-        showLoading(true, "鉄道路線データを取得中...");
-        const data = await fetchRailwayData();
-        showLoading(false);
-        if (data) {
-            boundaryGeoJsons.railway = data;
-        }
+    // 起動時に路線図が有効なら自動ロードして描画
+    if (railwayConfig.show) {
+        await renderRailwayLayer();
     }
 
     loadPrefectureData(selectedPrefCodes);
@@ -205,6 +221,52 @@ async function fetchRailwayData() {
     }
 }
 
+// 優先順位付き 鉄道スタイル計算関数
+function getRailwayFeatureStyle(feature) {
+    if (!railwayConfig.show) {
+        return { opacity: 0, weight: 0 };
+    }
+
+    const props = feature.properties || {};
+
+    // 路線名の取得（N02_003 / line_name / line / name に対応）
+    const lineName = props.N02_003 || props.line_name || props.line || props.name;
+
+    // 駅間・区間識別子の取得（segment_id または "from-to"）
+    const segmentId = props.segment_id || (props.from && props.to ? `${props.from}-${props.to}` : null);
+
+    let currentStyle = { ...railwayConfig.defaultStyle };
+
+    // 判定 1: 駅間（区間）個別設定
+    if (segmentId && railwayConfig.segmentStyles[segmentId]) {
+        currentStyle = { ...currentStyle, ...railwayConfig.segmentStyles[segmentId] };
+    }
+    // 判定 2: 路線別個別設定
+    else if (lineName && railwayConfig.lineStyles[lineName]) {
+        currentStyle = { ...currentStyle, ...railwayConfig.lineStyles[lineName] };
+    }
+    // 判定 3: GeoJSON属性の直接指定値
+    else if (props.color || props.weight) {
+        if (props.color) currentStyle.color = props.color;
+        if (props.weight) currentStyle.weight = parseFloat(props.weight);
+        if (props.style) currentStyle.style = props.style;
+    }
+
+    let dashArray = null;
+    if (currentStyle.style === "dashed") dashArray = "6, 4";
+    else if (currentStyle.style === "dotted") dashArray = "2, 3";
+
+    return {
+        color: currentStyle.color,
+        weight: currentStyle.weight,
+        dashArray: dashArray,
+        opacity: currentStyle.opacity,
+        lineCap: "round",
+        lineJoin: "round",
+        interactive: false
+    };
+}
+
 async function loadPrefectureData(codes) {
     showLoading(true, "GeoJSON境界データを読み込んでいます...");
     try {
@@ -244,6 +306,7 @@ function saveToLocalStorage() {
         localStorage.setItem(STORAGE_KEY_SELECTED_PREFS, JSON.stringify(selectedPrefCodes));
         localStorage.setItem(STORAGE_KEY_ISLANDS, JSON.stringify(includeIslands));
         localStorage.setItem(STORAGE_KEY_BOUNDARIES, JSON.stringify(boundarySettings));
+        localStorage.setItem(STORAGE_KEY_RAILWAY_CONFIG, JSON.stringify(railwayConfig));
         localStorage.setItem(STORAGE_KEY_BGCOLOR, mapBgColor);
         localStorage.setItem(STORAGE_KEY_LANDCOLOR, defaultLandColor);
         localStorage.setItem(STORAGE_KEY_ENABLE_OPACITY, JSON.stringify(enableLandOpacity));
@@ -265,6 +328,7 @@ function loadFromLocalStorage() {
         const savedPrefs = localStorage.getItem(STORAGE_KEY_SELECTED_PREFS);
         const savedIslands = localStorage.getItem(STORAGE_KEY_ISLANDS);
         const savedBoundaries = localStorage.getItem(STORAGE_KEY_BOUNDARIES);
+        const savedRailway = localStorage.getItem(STORAGE_KEY_RAILWAY_CONFIG);
         const savedBgColor = localStorage.getItem(STORAGE_KEY_BGCOLOR);
         const savedLandColor = localStorage.getItem(STORAGE_KEY_LANDCOLOR);
         const savedEnableOpacity = localStorage.getItem(STORAGE_KEY_ENABLE_OPACITY);
@@ -279,6 +343,7 @@ function loadFromLocalStorage() {
         if (savedPrefs) selectedPrefCodes = JSON.parse(savedPrefs) || ["ALL"];
         if (savedIslands) includeIslands = { ...includeIslands, ...JSON.parse(savedIslands) };
         if (savedBoundaries) boundarySettings = { ...boundarySettings, ...JSON.parse(savedBoundaries) };
+        if (savedRailway) railwayConfig = { ...railwayConfig, ...JSON.parse(savedRailway) };
         if (savedBgColor) mapBgColor = savedBgColor;
         if (savedLandColor) defaultLandColor = savedLandColor;
         if (savedEnableOpacity !== null) enableLandOpacity = JSON.parse(savedEnableOpacity);
@@ -320,8 +385,7 @@ function initBoundaryUIValues() {
         { type: "pref", chk: "chkPrefBoundary", color: "colorPrefBoundary", weight: "weightPrefBoundary", style: "stylePrefBoundary" },
         { type: "city", chk: "chkCityBoundary", color: "colorCityBoundary", weight: "weightCityBoundary", style: "styleCityBoundary" },
         { type: "county", chk: "chkCountyBoundary", color: "colorCountyBoundary", weight: "weightCountyBoundary", style: "styleCountyBoundary" },
-        { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", weight: "weightWardBoundary", style: "styleWardBoundary" },
-        { type: "railway", chk: "chkRailwayBoundary", color: "colorRailwayBoundary", weight: "weightRailwayBoundary", style: "styleRailwayBoundary" }
+        { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", weight: "weightWardBoundary", style: "styleWardBoundary" }
     ];
 
     uiMap.forEach(item => {
@@ -333,6 +397,15 @@ function initBoundaryUIValues() {
             if (document.getElementById(item.style)) document.getElementById(item.style).value = boundarySettings[item.type].style;
         }
     });
+
+    // 鉄道の設定UI初期値設定
+    const chkRail = document.getElementById("chkRailwayBoundary");
+    if (chkRail) {
+        chkRail.checked = railwayConfig.show;
+        document.getElementById("colorRailwayBoundary").value = railwayConfig.defaultStyle.color;
+        document.getElementById("weightRailwayBoundary").value = railwayConfig.defaultStyle.weight;
+        document.getElementById("styleRailwayBoundary").value = railwayConfig.defaultStyle.style;
+    }
 }
 
 function applyMapBgColor(color) {
@@ -816,39 +889,26 @@ function bindEvents() {
         showToast("背景画像を削除しました");
     });
 
+    // 境界線イベントハンドラ（鉄道以外）
     const boundaryUIKeys = [
         { type: "coast", chk: "chkCoastBoundary", color: "colorCoastBoundary", weight: "weightCoastBoundary", style: "styleCoastBoundary" },
         { type: "pref", chk: "chkPrefBoundary", color: "colorPrefBoundary", weight: "weightPrefBoundary", style: "stylePrefBoundary" },
         { type: "city", chk: "chkCityBoundary", color: "colorCityBoundary", weight: "weightCityBoundary", style: "styleCityBoundary" },
         { type: "county", chk: "chkCountyBoundary", color: "colorCountyBoundary", weight: "weightCountyBoundary", style: "styleCountyBoundary" },
-        { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", weight: "weightWardBoundary", style: "styleWardBoundary" },
-        { type: "railway", chk: "chkRailwayBoundary", color: "colorRailwayBoundary", weight: "weightRailwayBoundary", style: "styleRailwayBoundary" }
+        { type: "ward", chk: "chkWardBoundary", color: "colorWardBoundary", weight: "weightWardBoundary", style: "styleWardBoundary" }
     ];
 
     boundaryUIKeys.forEach(item => {
         const chkEl = document.getElementById(item.chk);
         if (!chkEl) return;
 
-        const updateSetting = async () => {
+        const updateSetting = () => {
             boundarySettings[item.type] = {
                 show: chkEl.checked,
                 color: document.getElementById(item.color).value,
                 weight: parseFloat(document.getElementById(item.weight)?.value || 1),
                 style: document.getElementById(item.style)?.value || "solid"
             };
-
-            if (item.type === "railway" && chkEl.checked && !boundaryGeoJsons.railway) {
-                showLoading(true, "鉄道路線データを取得中...");
-                const data = await fetchRailwayData();
-                showLoading(false);
-                if (data) {
-                    boundaryGeoJsons.railway = data;
-                } else {
-                    chkEl.checked = false;
-                    boundarySettings.railway.show = false;
-                }
-            }
-
             renderBoundaryLayers();
             saveToLocalStorage();
         };
@@ -858,6 +918,27 @@ function bindEvents() {
         document.getElementById(item.weight)?.addEventListener("change", updateSetting);
         document.getElementById(item.style)?.addEventListener("change", updateSetting);
     });
+
+    // 鉄道独立設定のイベントハンドラ
+    const chkRail = document.getElementById("chkRailwayBoundary");
+    const colorRail = document.getElementById("colorRailwayBoundary");
+    const weightRail = document.getElementById("weightRailwayBoundary");
+    const styleRail = document.getElementById("styleRailwayBoundary");
+
+    const updateRailwaySetting = async () => {
+        railwayConfig.show = chkRail.checked;
+        railwayConfig.defaultStyle.color = colorRail.value;
+        railwayConfig.defaultStyle.weight = parseFloat(weightRail.value);
+        railwayConfig.defaultStyle.style = styleRail.value;
+
+        await renderRailwayLayer();
+        saveToLocalStorage();
+    };
+
+    if (chkRail) chkRail.addEventListener("change", updateRailwaySetting);
+    if (colorRail) colorRail.addEventListener("input", updateRailwaySetting);
+    if (weightRail) weightRail.addEventListener("change", updateRailwaySetting);
+    if (styleRail) styleRail.addEventListener("change", updateRailwaySetting);
 }
 
 function renderGeoJson(data, topologyFeatures) {
@@ -932,6 +1013,7 @@ function renderGeoJson(data, topologyFeatures) {
     }).addTo(map);
 
     renderBoundaryLayers();
+    renderRailwayLayer();
     fitToCurrentBounds();
 }
 
@@ -1008,7 +1090,7 @@ function extractBoundaries(topologyFeatures, selectedPrefSet) {
 }
 
 function renderBoundaryLayers() {
-    ["ward", "county", "city", "pref", "coast", "railway"].forEach(type => {
+    ["ward", "county", "city", "pref", "coast"].forEach(type => {
         if (boundaryLayers[type]) {
             map.removeLayer(boundaryLayers[type]);
             boundaryLayers[type] = null;
@@ -1026,10 +1108,8 @@ function renderBoundaryLayers() {
             if (setting.style === "dashed") dashArray = "6, 4";
             else if (setting.style === "dotted") dashArray = "2, 3";
 
-            const targetPane = (type === "railway") ? "railwayPane" : "boundaryPane";
-
             boundaryLayers[type] = L.geoJSON(geojson, {
-                pane: targetPane,
+                pane: "boundaryPane",
                 style: {
                     color: setting.color,
                     weight: setting.weight,
@@ -1042,6 +1122,35 @@ function renderBoundaryLayers() {
             }).addTo(map);
         }
     });
+}
+
+// 独立した路線図描画処理
+async function renderRailwayLayer() {
+    if (boundaryLayers.railway) {
+        map.removeLayer(boundaryLayers.railway);
+        boundaryLayers.railway = null;
+    }
+
+    if (!railwayConfig.show) return;
+
+    if (!boundaryGeoJsons.railway) {
+        showLoading(true, "鉄道路線データを取得中...");
+        const data = await fetchRailwayData();
+        showLoading(false);
+        if (data) {
+            boundaryGeoJsons.railway = data;
+        } else {
+            railwayConfig.show = false;
+            const chkRail = document.getElementById("chkRailwayBoundary");
+            if (chkRail) chkRail.checked = false;
+            return;
+        }
+    }
+
+    boundaryLayers.railway = L.geoJSON(boundaryGeoJsons.railway, {
+        pane: "railwayPane",
+        style: getRailwayFeatureStyle
+    }).addTo(map);
 }
 
 function featureStyle(feature) {
@@ -1298,7 +1407,8 @@ function exportStateJson() {
         mapBgColor: mapBgColor,
         showBaseMap: showBaseMap,
         selectedTileType: selectedTileType,
-        customColors: customColors
+        customColors: customColors,
+        railwayConfig: railwayConfig
     };
     const jsonStr = JSON.stringify(exportData, null, 2);
     const blob = new Blob([jsonStr], { type: "application/json" });
@@ -1316,7 +1426,7 @@ function importStateJson(e) {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
         try {
             const data = JSON.parse(event.target.result);
             if (data && data.colorState) {
@@ -1329,12 +1439,14 @@ function importStateJson(e) {
                 if (data.showBaseMap !== undefined) showBaseMap = data.showBaseMap;
                 if (data.selectedTileType) selectedTileType = data.selectedTileType;
                 if (data.customColors) customColors = data.customColors;
+                if (data.railwayConfig) railwayConfig = data.railwayConfig;
 
                 updateModeUI();
                 initBoundaryUIValues();
                 renderCustomPalette();
                 updateTileLayer(selectedTileType);
                 refreshLayerStyles();
+                await renderRailwayLayer();
                 saveToLocalStorage();
                 updateUIStats();
                 showToast("JSONから復元しました");
@@ -1406,23 +1518,37 @@ function generateMapSvgString() {
         return lines.map(line => `M ${project(line[0])} L ${project(line[1])}`).join(" "); 
     }
 
-    function geojsonToD(geojson) {
-        if (!geojson || !geojson.features) return "";
-        let paths = [];
+    function railwayToSvgPaths(geojson) {
+        if (!geojson || !geojson.features || !railwayConfig.show) return "";
+        let pathsHtml = "";
         geojson.features.forEach(f => {
             const geom = f.geometry;
             if (!geom) return;
+
+            const style = getRailwayFeatureStyle(f);
+            if (!style || style.opacity === 0 || style.weight === 0) return;
+
+            let dashAttr = "";
+            if (style.dashArray) dashAttr = `stroke-dasharray="${style.dashArray}"`;
+
+            let d = "";
             if (geom.type === "LineString" && Array.isArray(geom.coordinates)) {
                 const pts = geom.coordinates.map(project).filter(p => !p.includes("NaN"));
-                if (pts.length >= 2) paths.push("M " + pts.join(" L "));
+                if (pts.length >= 2) d = "M " + pts.join(" L ");
             } else if (geom.type === "MultiLineString" && Array.isArray(geom.coordinates)) {
+                let segments = [];
                 geom.coordinates.forEach(coords => {
                     const pts = coords.map(project).filter(p => !p.includes("NaN"));
-                    if (pts.length >= 2) paths.push("M " + pts.join(" L "));
+                    if (pts.length >= 2) segments.push("M " + pts.join(" L "));
                 });
+                d = segments.join(" ");
+            }
+
+            if (d) {
+                pathsHtml += `    <path d="${d}" fill="none" stroke="${style.color}" stroke-width="${style.weight}" ${dashAttr} stroke-linecap="round" stroke-linejoin="round"/>\n`;
             }
         });
-        return paths.join(" ");
+        return pathsHtml;
     }
 
     let pathsHtml = "";
@@ -1447,26 +1573,22 @@ function generateMapSvgString() {
     });
 
     let boundarySvgHtml = "";
-    const boundaryTypes = mapMode === "pref" ? ["pref", "coast", "railway"] : ["ward", "county", "city", "pref", "coast", "railway"];
+    const boundaryTypes = mapMode === "pref" ? ["pref", "coast"] : ["ward", "county", "city", "pref", "coast"];
 
     boundaryTypes.forEach(type => {
         const setting = boundarySettings[type];
         const geojson = boundaryGeoJsons[type];
-        if (setting && setting.show && geojson) {
+        if (setting && setting.show && geojson && geojson.geometry && geojson.geometry.coordinates) {
             let dashAttr = "";
             if (setting.style === "dashed") dashAttr = 'stroke-dasharray="6,4"';
             else if (setting.style === "dotted") dashAttr = 'stroke-dasharray="2,3"';
 
-            let d = "";
-            if (type === "railway") {
-                d = geojsonToD(geojson);
-            } else if (geojson.geometry && geojson.geometry.coordinates) {
-                d = lineToD(geojson.geometry.coordinates);
-            }
-
+            const d = lineToD(geojson.geometry.coordinates);
             if (d) boundarySvgHtml += `    <path d="${d}" fill="none" stroke="${setting.color}" stroke-width="${setting.weight}" ${dashAttr} stroke-linecap="round" stroke-linejoin="round"/>\n`;
         }
     });
+
+    const railwaySvgHtml = railwayToSvgPaths(boundaryGeoJsons.railway);
 
     let bgImageSvg = "";
     if (bgImageDataUrl) bgImageSvg = `  <image href="${bgImageDataUrl}" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />\n`;
@@ -1481,6 +1603,8 @@ ${bgImageSvg}  <g id="municipalities">
 ${pathsHtml}  </g>
   <g id="boundaries">
 ${boundarySvgHtml}  </g>
+  <g id="railways">
+${railwaySvgHtml}  </g>
 </svg>`;
 }
 
