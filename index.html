@@ -94,411 +94,452 @@
     <div class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
 
         <!-- 左サイドパネル -->
-        <aside class="w-full md:w-80 lg:w-96 bg-white border-r border-slate-200 flex flex-col z-10 shadow-lg shrink-0 max-h-[45vh] md:max-h-full overflow-y-auto">
+        <aside class="w-full md:w-80 lg:w-96 bg-white border-r border-slate-200 flex flex-col z-10 shadow-lg shrink-0 max-h-[45vh] md:max-h-full overflow-hidden">
             
-            <!-- 進捗状況 -->
-            <div class="p-4 border-b border-slate-100 bg-slate-50">
-                <div class="flex justify-between items-center mb-1.5">
-                    <span id="currentPrefName" class="font-bold text-slate-800 text-base">全国（日本全体）</span>
-                    <span id="progressPercent" class="text-xs font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">0%</span>
-                </div>
-                <div class="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden mb-2 shadow-inner">
-                    <div id="progressBar" class="bg-indigo-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
-                </div>
-                <div class="flex justify-between text-xs text-slate-500">
-                    <span>塗りつぶし完了:</span>
-                    <span class="font-medium text-slate-700"><strong id="coloredCount" class="text-indigo-600 font-bold">0</strong> / <span id="totalCount">0</span> <span id="unitLabel">市区町村</span></span>
-                </div>
-            </div>
-
-            <!-- ツールボックス & カラーパレット -->
-            <div class="p-4 border-b border-slate-100 space-y-4">
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">モード選択</label>
-                    <div class="grid grid-cols-2 gap-2">
-                        <button id="btnPaintMode" class="flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg border border-indigo-600 bg-indigo-50 text-indigo-700 transition shadow-sm">
-                            <i data-lucide="paint-bucket" class="w-4 h-4"></i>
-                            塗りつぶし
-                        </button>
-                        <button id="btnEraserMode" class="flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition">
-                            <i data-lucide="eraser" class="w-4 h-4"></i>
-                            消しゴム
-                        </button>
-                    </div>
-                </div>
-
-                <!-- カラーパレット（基本24色 ＆ カスタム12色） -->
-                <div>
-                    <div class="flex justify-between items-center mb-1.5">
-                        <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">基本パレット (24色)</label>
-                    </div>
-                    <div id="colorPalette" class="grid grid-cols-6 gap-2 mb-3"></div>
-
-                    <div class="flex justify-between items-center mb-1.5">
-                        <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">カスタムカラー (12色)</label>
-                        <span class="text-[10px] text-slate-400">クリックで色変更・選択</span>
-                    </div>
-                    <div id="customColorPalette" class="grid grid-cols-6 gap-2"></div>
-                </div>
-
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">一括操作</label>
-                    <div class="flex gap-2">
-                        <button id="btnFillAll" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium py-1.5 px-2 rounded-md transition flex items-center justify-center gap-1">
-                            <i data-lucide="maximize" class="w-3.5 h-3.5"></i>
-                            全塗る
-                        </button>
-                        <button id="btnClearAll" class="flex-1 bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-medium py-1.5 px-2 rounded-md transition flex items-center justify-center gap-1">
-                            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
-                            クリア
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- レイヤー設定パネル -->
-            <div class="p-4 border-b border-slate-100 space-y-4">
-                <div class="flex items-center gap-1.5">
-                    <i data-lucide="layers" class="w-4 h-4 text-indigo-600"></i>
-                    <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider">レイヤー設定</label>
-                </div>
-
-                <!-- Layer 1: 最下層 -->
-                <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5 text-xs">
-                    <div class="flex items-center justify-between font-bold text-slate-800">
-                        <span class="flex items-center gap-1.5">
-                            <span class="w-2 h-2 rounded-full bg-slate-400"></span>
-                            背景レイヤー (海洋・背景画像)
-                        </span>
-                        <input type="color" id="bgColorPicker" value="#f1f5f9" class="w-5 h-5 rounded cursor-pointer border border-slate-300">
-                    </div>
-                    <div>
-                        <div class="flex gap-2 items-center">
-                            <label class="flex-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 px-2 py-1.5 rounded-lg text-center cursor-pointer font-medium truncate text-[11px]">
-                                <span id="bgImageName">背景画像を選択...</span>
-                                <input type="file" id="bgImageInput" accept="image/*" class="hidden">
-                            </label>
-                            <button id="btnRemoveBgImage" class="bg-rose-50 hover:bg-rose-100 text-rose-600 px-2 py-1.5 rounded-lg font-medium border border-rose-200 text-[11px] hidden">
-                                削除
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Layer 2: ベースマップ -->
-                <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5 text-xs">
-                    <div class="flex items-center justify-between font-bold text-slate-800">
-                        <span class="flex items-center gap-1.5">
-                            <span class="w-2 h-2 rounded-full bg-blue-500"></span>
-                            ベースマップ (地図の形式)
-                        </span>
-                        <label class="flex items-center gap-1 font-normal text-slate-600 cursor-pointer">
-                            <input type="checkbox" id="chkShowBaseMap" checked class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
-                            表示
-                        </label>
-                    </div>
-                    <div class="grid grid-cols-3 gap-1 bg-slate-200/60 p-1 rounded-lg">
-                        <button data-tile="pale" class="tile-btn active bg-white text-indigo-600 shadow-sm text-[11px] font-medium py-1 px-1.5 rounded-md transition text-center">地理院(淡色)</button>
-                        <button data-tile="std" class="tile-btn text-slate-600 hover:text-slate-900 text-[11px] font-medium py-1 px-1.5 rounded-md transition text-center">地理院(標準)</button>
-                        <button data-tile="none" class="tile-btn text-slate-600 hover:text-slate-900 text-[11px] font-medium py-1 px-1.5 rounded-md transition text-center">なし (白地図)</button>
-                    </div>
-                </div>
-
-                <!-- Layer 3: 陸地ペイント -->
-                <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5 text-xs">
-                    <div class="flex items-center justify-between font-bold text-slate-800">
-                        <span class="flex items-center gap-1.5">
-                            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                            陸地・ペイント領域
-                        </span>
-                        <input type="color" id="landColorPicker" value="#ffffff" class="w-5 h-5 rounded cursor-pointer border border-slate-300" title="未塗りエリアの色">
-                    </div>
-                    
-                    <div class="space-y-1.5 pt-1 border-t border-slate-200/60">
-                        <div class="flex items-center justify-between">
-                            <label class="flex items-center gap-1.5 text-slate-700 cursor-pointer select-none">
-                                <input type="checkbox" id="chkEnableOpacity" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
-                                <span>未塗り陸地の透過を有効化</span>
-                            </label>
-                        </div>
-                        <div class="flex items-center justify-between pl-5">
-                            <span class="text-slate-500 text-[11px]">不透明度:</span>
-                            <div class="flex items-center gap-1.5">
-                                <input type="range" id="landOpacityRange" min="0.05" max="1.0" step="0.05" value="0.45" class="w-20 accent-indigo-600 cursor-pointer disabled:opacity-40">
-                                <span id="landOpacityVal" class="text-[11px] text-slate-500 font-mono w-8 text-right">0.45</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Layer 4: 境界線カスタマイズ -->
-                <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-3 text-xs">
-                    <div class="flex items-center justify-between font-bold text-slate-800">
-                        <span class="flex items-center gap-1.5">
-                            <span class="w-2 h-2 rounded-full bg-indigo-600"></span>
-                            境界線表示カスタマイズ
-                        </span>
-                    </div>
-
-                    <!-- 海岸線設定 -->
-                    <div class="p-2.5 bg-white rounded-lg border border-slate-200 text-xs space-y-2">
-                        <div class="flex items-center justify-between">
-                            <label class="flex items-center gap-1.5 font-bold text-slate-700 cursor-pointer select-none">
-                                <input type="checkbox" id="chkCoastBoundary" checked class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
-                                <span>海岸線</span>
-                            </label>
-                            <input type="color" id="colorCoastBoundary" value="#1e293b" class="w-5 h-5 rounded cursor-pointer border border-slate-300">
-                        </div>
-                        <div class="grid grid-cols-2 gap-2 text-[11px]">
-                            <div class="flex items-center gap-1">
-                                <span class="text-slate-500">太さ:</span>
-                                <select id="weightCoastBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
-                                    <option value="0.5">0.5px</option>
-                                    <option value="1">1px</option>
-                                    <option value="1.5">1.5px</option>
-                                    <option value="2" selected>2px</option>
-                                    <option value="2.5">2.5px</option>
-                                    <option value="3">3px</option>
-                                    <option value="3.5">3.5px</option>
-                                    <option value="4">4px</option>
-                                    <option value="4.5">4.5px</option>
-                                    <option value="5">5px</option>
-                                </select>
-                            </div>
-                            <div class="flex items-center gap-1">
-                                <span class="text-slate-500">線種:</span>
-                                <select id="styleCoastBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
-                                    <option value="solid" selected>実線</option>
-                                    <option value="dashed">破線</option>
-                                    <option value="dotted">点線</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 県境設定 -->
-                    <div class="p-2.5 bg-white rounded-lg border border-slate-200 text-xs space-y-2">
-                        <div class="flex items-center justify-between">
-                            <label class="flex items-center gap-1.5 font-bold text-slate-700 cursor-pointer select-none">
-                                <input type="checkbox" id="chkPrefBoundary" checked class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
-                                <span>都道府県境</span>
-                            </label>
-                            <input type="color" id="colorPrefBoundary" value="#0f172a" class="w-5 h-5 rounded cursor-pointer border border-slate-300">
-                        </div>
-                        <div class="grid grid-cols-2 gap-2 text-[11px]">
-                            <div class="flex items-center gap-1">
-                                <span class="text-slate-500">太さ:</span>
-                                <select id="weightPrefBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
-                                    <option value="0.5">0.5px</option>
-                                    <option value="1">1px</option>
-                                    <option value="1.5">1.5px</option>
-                                    <option value="2">2px</option>
-                                    <option value="2.5" selected>2.5px</option>
-                                    <option value="3">3px</option>
-                                    <option value="3.5">3.5px</option>
-                                    <option value="4">4px</option>
-                                    <option value="4.5">4.5px</option>
-                                    <option value="5">5px</option>
-                                </select>
-                            </div>
-                            <div class="flex items-center gap-1">
-                                <span class="text-slate-500">線種:</span>
-                                <select id="stylePrefBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
-                                    <option value="solid" selected>実線</option>
-                                    <option value="dashed">破線</option>
-                                    <option value="dotted">点線</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 市町村境設定 -->
-                    <div id="cityBoundaryBox" class="p-2.5 bg-white rounded-lg border border-slate-200 text-xs space-y-2">
-                        <div class="flex items-center justify-between">
-                            <label class="flex items-center gap-1.5 font-bold text-slate-700 cursor-pointer select-none">
-                                <input type="checkbox" id="chkCityBoundary" checked class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
-                                <span>市区町村境</span>
-                            </label>
-                            <input type="color" id="colorCityBoundary" value="#475569" class="w-5 h-5 rounded cursor-pointer border border-slate-300">
-                        </div>
-                        <div class="grid grid-cols-2 gap-2 text-[11px]">
-                            <div class="flex items-center gap-1">
-                                <span class="text-slate-500">太さ:</span>
-                                <select id="weightCityBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
-                                    <option value="0.5">0.5px</option>
-                                    <option value="1" selected>1px</option>
-                                    <option value="1.5">1.5px</option>
-                                    <option value="2">2px</option>
-                                    <option value="2.5">2.5px</option>
-                                    <option value="3">3px</option>
-                                    <option value="3.5">3.5px</option>
-                                    <option value="4">4px</option>
-                                    <option value="4.5">4.5px</option>
-                                    <option value="5">5px</option>
-                                </select>
-                            </div>
-                            <div class="flex items-center gap-1">
-                                <span class="text-slate-500">線種:</span>
-                                <select id="styleCityBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
-                                    <option value="solid" selected>実線</option>
-                                    <option value="dashed">破線</option>
-                                    <option value="dotted">点線</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 同郡内の町村境設定 -->
-                    <div id="countyBoundaryBox" class="p-2.5 bg-white rounded-lg border border-slate-200 text-xs space-y-2">
-                        <div class="flex items-center justify-between">
-                            <label class="flex items-center gap-1.5 font-bold text-slate-700 cursor-pointer select-none">
-                                <input type="checkbox" id="chkCountyBoundary" checked class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
-                                <span>同郡内の町村境</span>
-                            </label>
-                            <input type="color" id="colorCountyBoundary" value="#64748b" class="w-5 h-5 rounded cursor-pointer border border-slate-300">
-                        </div>
-                        <div class="grid grid-cols-2 gap-2 text-[11px]">
-                            <div class="flex items-center gap-1">
-                                <span class="text-slate-500">太さ:</span>
-                                <select id="weightCountyBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
-                                    <option value="0.5">0.5px</option>
-                                    <option value="1" selected>1px</option>
-                                    <option value="1.5">1.5px</option>
-                                    <option value="2">2px</option>
-                                    <option value="2.5">2.5px</option>
-                                    <option value="3">3px</option>
-                                    <option value="3.5">3.5px</option>
-                                    <option value="4">4px</option>
-                                    <option value="4.5">4.5px</option>
-                                    <option value="5">5px</option>
-                                </select>
-                            </div>
-                            <div class="flex items-center gap-1">
-                                <span class="text-slate-500">線種:</span>
-                                <select id="styleCountyBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
-                                    <option value="solid">実線</option>
-                                    <option value="dashed">破線</option>
-                                    <option value="dotted" selected>点線</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 政令市行政区境設定 -->
-                    <div id="wardBoundaryBox" class="p-2.5 bg-white rounded-lg border border-slate-200 text-xs space-y-2">
-                        <div class="flex items-center justify-between">
-                            <label class="flex items-center gap-1.5 font-bold text-slate-700 cursor-pointer select-none">
-                                <input type="checkbox" id="chkWardBoundary" checked class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
-                                <span>政令市 行政区境</span>
-                            </label>
-                            <input type="color" id="colorWardBoundary" value="#64748b" class="w-5 h-5 rounded cursor-pointer border border-slate-300">
-                        </div>
-                        <div class="grid grid-cols-2 gap-2 text-[11px]">
-                            <div class="flex items-center gap-1">
-                                <span class="text-slate-500">太さ:</span>
-                                <select id="weightWardBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
-                                    <option value="0.5">0.5px</option>
-                                    <option value="1" selected>1px</option>
-                                    <option value="1.5">1.5px</option>
-                                    <option value="2">2px</option>
-                                    <option value="2.5">2.5px</option>
-                                    <option value="3">3px</option>
-                                    <option value="3.5">3.5px</option>
-                                    <option value="4">4px</option>
-                                    <option value="4.5">4.5px</option>
-                                    <option value="5">5px</option>
-                                </select>
-                            </div>
-                            <div class="flex items-center gap-1">
-                                <span class="text-slate-500">線種:</span>
-                                <select id="styleWardBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
-                                    <option value="solid">実線</option>
-                                    <option value="dashed" selected>破線</option>
-                                    <option value="dotted">点線</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Layer 5: 鉄道（路線図）独立設定 -->
-                <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-3 text-xs">
-                    <div class="flex items-center justify-between font-bold text-slate-800">
-                        <span class="flex items-center gap-1.5">
-                            <span class="w-2 h-2 rounded-full bg-slate-700"></span>
-                            路線図（鉄道）独立設定
-                        </span>
-                    </div>
-
-                    <div class="p-2.5 bg-white rounded-lg border border-slate-200 text-xs space-y-2">
-                        <div class="flex items-center justify-between">
-                            <label class="flex items-center gap-1.5 font-bold text-slate-700 cursor-pointer select-none">
-                                <input type="checkbox" id="chkRailwayBoundary" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
-                                <span>路線図を表示</span>
-                            </label>
-                            <input type="color" id="colorRailwayBoundary" value="#334155" class="w-5 h-5 rounded cursor-pointer border border-slate-300">
-                        </div>
-                        <div class="grid grid-cols-2 gap-2 text-[11px]">
-                            <div class="flex items-center gap-1">
-                                <span class="text-slate-500">基本太さ:</span>
-                                <select id="weightRailwayBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
-                                    <option value="0.5">0.5px</option>
-                                    <option value="1">1px</option>
-                                    <option value="1.5" selected>1.5px</option>
-                                    <option value="2">2px</option>
-                                    <option value="2.5">2.5px</option>
-                                    <option value="3">3px</option>
-                                    <option value="4">4px</option>
-                                </select>
-                            </div>
-                            <div class="flex items-center gap-1">
-                                <span class="text-slate-500">基本線種:</span>
-                                <select id="styleRailwayBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
-                                    <option value="solid" selected>実線</option>
-                                    <option value="dashed">破線</option>
-                                    <option value="dotted">点線</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 塗りつぶし済みリスト -->
-            <div class="flex-1 p-4 flex flex-col min-h-[160px]">
-                <div class="flex justify-between items-center mb-2">
-                    <label class="text-xs font-bold text-slate-500 uppercase tracking-wider" id="coloredListTitle">塗った市区町村リスト</label>
-                    <span id="coloredBadge" class="text-[10px] bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded">0件</span>
-                </div>
-                <div id="coloredCityList" class="flex-1 overflow-y-auto space-y-1.5 pr-1 text-xs">
-                    <div class="text-slate-400 text-center py-6 text-xs">まだ塗りつぶされた地域はありません</div>
-                </div>
-            </div>
-
-            <!-- サンプルデータ設定パネル -->
-            <div class="p-4 border-t border-slate-200 bg-slate-50 space-y-2">
-                <div class="flex items-center justify-between">
-                    <label class="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                        <i data-lucide="sparkles" class="w-4 h-4 text-indigo-500"></i>
-                        サンプルデータ設定
-                    </label>
-                </div>
-                <p class="text-[11px] text-slate-500">自治体区分（特別区・政令市・市・町・村）ごとに淡い色で塗り分けます。</p>
-                <button type="button" id="btnApplySampleData" class="w-full py-2 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg border border-indigo-200 text-xs transition flex items-center justify-center gap-1.5 shadow-xs">
-                    <i data-lucide="palette" class="w-4 h-4"></i>
-                    自治体区分サンプルを適用
+            <!-- 最上部 タブ切替ボタン -->
+            <div class="p-2 bg-slate-100 border-b border-slate-200 grid grid-cols-2 gap-1.5 shrink-0">
+                <button id="btnTabPaint" type="button" class="py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 bg-indigo-600 text-white shadow-sm">
+                    <i data-lucide="paint-bucket" class="w-4 h-4"></i>
+                    地域を塗る
                 </button>
-                <div class="grid grid-cols-5 gap-1 text-[10px] text-center pt-1 font-semibold">
-                    <span class="py-1 px-0.5 rounded border" style="background-color: #fecaca; color: #991b1b; border-color: #fca5a5;">特別区</span>
-                    <span class="py-1 px-0.5 rounded border" style="background-color: #fbcfe8; color: #9d174d; border-color: #f9a8d4;">政令市</span>
-                    <span class="py-1 px-0.5 rounded border" style="background-color: #fed7aa; color: #9a3412; border-color: #fdba74;">市</span>
-                    <span class="py-1 px-0.5 rounded border" style="background-color: #bbf7d0; color: #166534; border-color: #86efac;">町</span>
-                    <span class="py-1 px-0.5 rounded border" style="background-color: #bae6fd; color: #075985; border-color: #7dd3fc;">村</span>
+                <button id="btnTabRailway" type="button" class="py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 bg-slate-100 text-slate-600 hover:bg-slate-200">
+                    <i data-lucide="train" class="w-4 h-4"></i>
+                    路線図の設定
+                </button>
+            </div>
+
+            <!-- サイドパネル内 スクロールコンテンツエリア -->
+            <div class="flex-1 overflow-y-auto">
+                
+                <!-- ========================================== -->
+                <!-- タブ 1: 地域ペイント機能 (#tabContentPaint) -->
+                <!-- ========================================== -->
+                <div id="tabContentPaint" class="flex flex-col">
+                    
+                    <!-- 進捗状況 -->
+                    <div class="p-4 border-b border-slate-100 bg-slate-50">
+                        <div class="flex justify-between items-center mb-1.5">
+                            <span id="currentPrefName" class="font-bold text-slate-800 text-base">全国（日本全体）</span>
+                            <span id="progressPercent" class="text-xs font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">0%</span>
+                        </div>
+                        <div class="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden mb-2 shadow-inner">
+                            <div id="progressBar" class="bg-indigo-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                        <div class="flex justify-between text-xs text-slate-500">
+                            <span>塗りつぶし完了:</span>
+                            <span class="font-medium text-slate-700"><strong id="coloredCount" class="text-indigo-600 font-bold">0</strong> / <span id="totalCount">0</span> <span id="unitLabel">市区町村</span></span>
+                        </div>
+                    </div>
+
+                    <!-- ツールボックス & カラーパレット -->
+                    <div class="p-4 border-b border-slate-100 space-y-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">モード選択</label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <button id="btnPaintMode" class="flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg border border-indigo-600 bg-indigo-50 text-indigo-700 transition shadow-sm">
+                                    <i data-lucide="paint-bucket" class="w-4 h-4"></i>
+                                    塗りつぶし
+                                </button>
+                                <button id="btnEraserMode" class="flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition">
+                                    <i data-lucide="eraser" class="w-4 h-4"></i>
+                                    消しゴム
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- カラーパレット（基本24色 ＆ カスタム12色） -->
+                        <div>
+                            <div class="flex justify-between items-center mb-1.5">
+                                <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">基本パレット (24色)</label>
+                            </div>
+                            <div id="colorPalette" class="grid grid-cols-6 gap-2 mb-3"></div>
+
+                            <div class="flex justify-between items-center mb-1.5">
+                                <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">カスタムカラー (12色)</label>
+                                <span class="text-[10px] text-slate-400">クリックで色変更・選択</span>
+                            </div>
+                            <div id="customColorPalette" class="grid grid-cols-6 gap-2"></div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">一括操作</label>
+                            <div class="flex gap-2">
+                                <button id="btnFillAll" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium py-1.5 px-2 rounded-md transition flex items-center justify-center gap-1">
+                                    <i data-lucide="maximize" class="w-3.5 h-3.5"></i>
+                                    全塗る
+                                </button>
+                                <button id="btnClearAll" class="flex-1 bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-medium py-1.5 px-2 rounded-md transition flex items-center justify-center gap-1">
+                                    <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                                    クリア
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- レイヤー設定パネル（背景・地図・境界線） -->
+                    <div class="p-4 border-b border-slate-100 space-y-4">
+                        <div class="flex items-center gap-1.5">
+                            <i data-lucide="layers" class="w-4 h-4 text-indigo-600"></i>
+                            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider">レイヤー設定</label>
+                        </div>
+
+                        <!-- Layer 1: 最下層 -->
+                        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5 text-xs">
+                            <div class="flex items-center justify-between font-bold text-slate-800">
+                                <span class="flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-slate-400"></span>
+                                    背景レイヤー (海洋・背景画像)
+                                </span>
+                                <input type="color" id="bgColorPicker" value="#f1f5f9" class="w-5 h-5 rounded cursor-pointer border border-slate-300">
+                            </div>
+                            <div>
+                                <div class="flex gap-2 items-center">
+                                    <label class="flex-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 px-2 py-1.5 rounded-lg text-center cursor-pointer font-medium truncate text-[11px]">
+                                        <span id="bgImageName">背景画像を選択...</span>
+                                        <input type="file" id="bgImageInput" accept="image/*" class="hidden">
+                                    </label>
+                                    <button id="btnRemoveBgImage" class="bg-rose-50 hover:bg-rose-100 text-rose-600 px-2 py-1.5 rounded-lg font-medium border border-rose-200 text-[11px] hidden">
+                                        削除
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Layer 2: ベースマップ -->
+                        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5 text-xs">
+                            <div class="flex items-center justify-between font-bold text-slate-800">
+                                <span class="flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                                    ベースマップ (地図の形式)
+                                </span>
+                                <label class="flex items-center gap-1 font-normal text-slate-600 cursor-pointer">
+                                    <input type="checkbox" id="chkShowBaseMap" checked class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+                                    表示
+                                </label>
+                            </div>
+                            <div class="grid grid-cols-3 gap-1 bg-slate-200/60 p-1 rounded-lg">
+                                <button data-tile="pale" class="tile-btn active bg-white text-indigo-600 shadow-sm text-[11px] font-medium py-1 px-1.5 rounded-md transition text-center">地理院(淡色)</button>
+                                <button data-tile="std" class="tile-btn text-slate-600 hover:text-slate-900 text-[11px] font-medium py-1 px-1.5 rounded-md transition text-center">地理院(標準)</button>
+                                <button data-tile="none" class="tile-btn text-slate-600 hover:text-slate-900 text-[11px] font-medium py-1 px-1.5 rounded-md transition text-center">なし (白地図)</button>
+                            </div>
+                        </div>
+
+                        <!-- Layer 3: 陸地ペイント -->
+                        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5 text-xs">
+                            <div class="flex items-center justify-between font-bold text-slate-800">
+                                <span class="flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                                    陸地・ペイント領域
+                                </span>
+                                <input type="color" id="landColorPicker" value="#ffffff" class="w-5 h-5 rounded cursor-pointer border border-slate-300" title="未塗りエリアの色">
+                            </div>
+                            
+                            <div class="space-y-1.5 pt-1 border-t border-slate-200/60">
+                                <div class="flex items-center justify-between">
+                                    <label class="flex items-center gap-1.5 text-slate-700 cursor-pointer select-none">
+                                        <input type="checkbox" id="chkEnableOpacity" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+                                        <span>未塗り陸地の透過を有効化</span>
+                                    </label>
+                                </div>
+                                <div class="flex items-center justify-between pl-5">
+                                    <span class="text-slate-500 text-[11px]">不透明度:</span>
+                                    <div class="flex items-center gap-1.5">
+                                        <input type="range" id="landOpacityRange" min="0.05" max="1.0" step="0.05" value="0.45" class="w-20 accent-indigo-600 cursor-pointer disabled:opacity-40">
+                                        <span id="landOpacityVal" class="text-[11px] text-slate-500 font-mono w-8 text-right">0.45</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Layer 4: 境界線カスタマイズ -->
+                        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-3 text-xs">
+                            <div class="flex items-center justify-between font-bold text-slate-800">
+                                <span class="flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-indigo-600"></span>
+                                    境界線表示カスタマイズ
+                                </span>
+                            </div>
+
+                            <!-- 海岸線設定 -->
+                            <div class="p-2.5 bg-white rounded-lg border border-slate-200 text-xs space-y-2">
+                                <div class="flex items-center justify-between">
+                                    <label class="flex items-center gap-1.5 font-bold text-slate-700 cursor-pointer select-none">
+                                        <input type="checkbox" id="chkCoastBoundary" checked class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+                                        <span>海岸線</span>
+                                    </label>
+                                    <input type="color" id="colorCoastBoundary" value="#1e293b" class="w-5 h-5 rounded cursor-pointer border border-slate-300">
+                                </div>
+                                <div class="grid grid-cols-2 gap-2 text-[11px]">
+                                    <div class="flex items-center gap-1">
+                                        <span class="text-slate-500">太さ:</span>
+                                        <select id="weightCoastBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                            <option value="0.5">0.5px</option>
+                                            <option value="1">1px</option>
+                                            <option value="1.5">1.5px</option>
+                                            <option value="2" selected>2px</option>
+                                            <option value="2.5">2.5px</option>
+                                            <option value="3">3px</option>
+                                            <option value="3.5">3.5px</option>
+                                            <option value="4">4px</option>
+                                            <option value="4.5">4.5px</option>
+                                            <option value="5">5px</option>
+                                        </select>
+                                    </div>
+                                    <div class="flex items-center gap-1">
+                                        <span class="text-slate-500">線種:</span>
+                                        <select id="styleCoastBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                            <option value="solid" selected>実線</option>
+                                            <option value="dashed">破線</option>
+                                            <option value="dotted">点線</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 県境設定 -->
+                            <div class="p-2.5 bg-white rounded-lg border border-slate-200 text-xs space-y-2">
+                                <div class="flex items-center justify-between">
+                                    <label class="flex items-center gap-1.5 font-bold text-slate-700 cursor-pointer select-none">
+                                        <input type="checkbox" id="chkPrefBoundary" checked class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+                                        <span>都道府県境</span>
+                                    </label>
+                                    <input type="color" id="colorPrefBoundary" value="#0f172a" class="w-5 h-5 rounded cursor-pointer border border-slate-300">
+                                </div>
+                                <div class="grid grid-cols-2 gap-2 text-[11px]">
+                                    <div class="flex items-center gap-1">
+                                        <span class="text-slate-500">太さ:</span>
+                                        <select id="weightPrefBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                            <option value="0.5">0.5px</option>
+                                            <option value="1">1px</option>
+                                            <option value="1.5">1.5px</option>
+                                            <option value="2">2px</option>
+                                            <option value="2.5" selected>2.5px</option>
+                                            <option value="3">3px</option>
+                                            <option value="3.5">3.5px</option>
+                                            <option value="4">4px</option>
+                                            <option value="4.5">4.5px</option>
+                                            <option value="5">5px</option>
+                                        </select>
+                                    </div>
+                                    <div class="flex items-center gap-1">
+                                        <span class="text-slate-500">線種:</span>
+                                        <select id="stylePrefBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                            <option value="solid" selected>実線</option>
+                                            <option value="dashed">破線</option>
+                                            <option value="dotted">点線</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 市町村境設定 -->
+                            <div id="cityBoundaryBox" class="p-2.5 bg-white rounded-lg border border-slate-200 text-xs space-y-2">
+                                <div class="flex items-center justify-between">
+                                    <label class="flex items-center gap-1.5 font-bold text-slate-700 cursor-pointer select-none">
+                                        <input type="checkbox" id="chkCityBoundary" checked class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+                                        <span>市区町村境</span>
+                                    </label>
+                                    <input type="color" id="colorCityBoundary" value="#475569" class="w-5 h-5 rounded cursor-pointer border border-slate-300">
+                                </div>
+                                <div class="grid grid-cols-2 gap-2 text-[11px]">
+                                    <div class="flex items-center gap-1">
+                                        <span class="text-slate-500">太さ:</span>
+                                        <select id="weightCityBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                            <option value="0.5">0.5px</option>
+                                            <option value="1" selected>1px</option>
+                                            <option value="1.5">1.5px</option>
+                                            <option value="2">2px</option>
+                                            <option value="2.5">2.5px</option>
+                                            <option value="3">3px</option>
+                                            <option value="3.5">3.5px</option>
+                                            <option value="4">4px</option>
+                                            <option value="4.5">4.5px</option>
+                                            <option value="5">5px</option>
+                                        </select>
+                                    </div>
+                                    <div class="flex items-center gap-1">
+                                        <span class="text-slate-500">線種:</span>
+                                        <select id="styleCityBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                            <option value="solid" selected>実線</option>
+                                            <option value="dashed">破線</option>
+                                            <option value="dotted">点線</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 同郡内の町村境設定 -->
+                            <div id="countyBoundaryBox" class="p-2.5 bg-white rounded-lg border border-slate-200 text-xs space-y-2">
+                                <div class="flex items-center justify-between">
+                                    <label class="flex items-center gap-1.5 font-bold text-slate-700 cursor-pointer select-none">
+                                        <input type="checkbox" id="chkCountyBoundary" checked class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+                                        <span>同郡内の町村境</span>
+                                    </label>
+                                    <input type="color" id="colorCountyBoundary" value="#64748b" class="w-5 h-5 rounded cursor-pointer border border-slate-300">
+                                </div>
+                                <div class="grid grid-cols-2 gap-2 text-[11px]">
+                                    <div class="flex items-center gap-1">
+                                        <span class="text-slate-500">太さ:</span>
+                                        <select id="weightCountyBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                            <option value="0.5">0.5px</option>
+                                            <option value="1" selected>1px</option>
+                                            <option value="1.5">1.5px</option>
+                                            <option value="2">2px</option>
+                                            <option value="2.5">2.5px</option>
+                                            <option value="3">3px</option>
+                                            <option value="3.5">3.5px</option>
+                                            <option value="4">4px</option>
+                                            <option value="4.5">4.5px</option>
+                                            <option value="5">5px</option>
+                                        </select>
+                                    </div>
+                                    <div class="flex items-center gap-1">
+                                        <span class="text-slate-500">線種:</span>
+                                        <select id="styleCountyBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                            <option value="solid">実線</option>
+                                            <option value="dashed">破線</option>
+                                            <option value="dotted" selected>点線</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 政令市行政区境設定 -->
+                            <div id="wardBoundaryBox" class="p-2.5 bg-white rounded-lg border border-slate-200 text-xs space-y-2">
+                                <div class="flex items-center justify-between">
+                                    <label class="flex items-center gap-1.5 font-bold text-slate-700 cursor-pointer select-none">
+                                        <input type="checkbox" id="chkWardBoundary" checked class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+                                        <span>政令市 行政区境</span>
+                                    </label>
+                                    <input type="color" id="colorWardBoundary" value="#64748b" class="w-5 h-5 rounded cursor-pointer border border-slate-300">
+                                </div>
+                                <div class="grid grid-cols-2 gap-2 text-[11px]">
+                                    <div class="flex items-center gap-1">
+                                        <span class="text-slate-500">太さ:</span>
+                                        <select id="weightWardBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                            <option value="0.5">0.5px</option>
+                                            <option value="1" selected>1px</option>
+                                            <option value="1.5">1.5px</option>
+                                            <option value="2">2px</option>
+                                            <option value="2.5">2.5px</option>
+                                            <option value="3">3px</option>
+                                            <option value="3.5">3.5px</option>
+                                            <option value="4">4px</option>
+                                            <option value="4.5">4.5px</option>
+                                            <option value="5">5px</option>
+                                        </select>
+                                    </div>
+                                    <div class="flex items-center gap-1">
+                                        <span class="text-slate-500">線種:</span>
+                                        <select id="styleWardBoundary" class="bg-white border border-slate-200 rounded px-1 py-0.5 w-full text-slate-700">
+                                            <option value="solid">実線</option>
+                                            <option value="dashed" selected>破線</option>
+                                            <option value="dotted">点線</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 塗りつぶし済みリスト -->
+                    <div class="p-4 border-b border-slate-100 flex flex-col min-h-[160px]">
+                        <div class="flex justify-between items-center mb-2">
+                            <label class="text-xs font-bold text-slate-500 uppercase tracking-wider" id="coloredListTitle">塗った市区町村リスト</label>
+                            <span id="coloredBadge" class="text-[10px] bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded">0件</span>
+                        </div>
+                        <div id="coloredCityList" class="max-h-48 overflow-y-auto space-y-1.5 pr-1 text-xs">
+                            <div class="text-slate-400 text-center py-6 text-xs">まだ塗りつぶされた地域はありません</div>
+                        </div>
+                    </div>
+
+                    <!-- サンプルデータ設定パネル -->
+                    <div class="p-4 bg-slate-50 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <label class="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                                <i data-lucide="sparkles" class="w-4 h-4 text-indigo-500"></i>
+                                サンプルデータ設定
+                            </label>
+                        </div>
+                        <p class="text-[11px] text-slate-500">自治体区分（特別区・政令市・市・町・村）ごとに淡い色で塗り分けます。</p>
+                        <button type="button" id="btnApplySampleData" class="w-full py-2 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg border border-indigo-200 text-xs transition flex items-center justify-center gap-1.5 shadow-xs">
+                            <i data-lucide="palette" class="w-4 h-4"></i>
+                            自治体区分サンプルを適用
+                        </button>
+                        <div class="grid grid-cols-5 gap-1 text-[10px] text-center pt-1 font-semibold">
+                            <span class="py-1 px-0.5 rounded border" style="background-color: #fecaca; color: #991b1b; border-color: #fca5a5;">特別区</span>
+                            <span class="py-1 px-0.5 rounded border" style="background-color: #fbcfe8; color: #9d174d; border-color: #f9a8d4;">政令市</span>
+                            <span class="py-1 px-0.5 rounded border" style="background-color: #fed7aa; color: #9a3412; border-color: #fdba74;">市</span>
+                            <span class="py-1 px-0.5 rounded border" style="background-color: #bbf7d0; color: #166534; border-color: #86efac;">町</span>
+                            <span class="py-1 px-0.5 rounded border" style="background-color: #bae6fd; color: #075985; border-color: #7dd3fc;">村</span>
+                        </div>
+                    </div>
+
                 </div>
+
+                <!-- ========================================== -->
+                <!-- タブ 2: 路線図設定 (#tabContentRailway)     -->
+                <!-- ========================================== -->
+                <div id="tabContentRailway" class="p-4 space-y-4 hidden">
+                    
+                    <div class="flex items-center gap-1.5">
+                        <i data-lucide="train" class="w-4 h-4 text-indigo-600"></i>
+                        <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider">路線図（鉄道）独立設定</label>
+                    </div>
+
+                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-3 text-xs">
+                        <div class="flex items-center justify-between">
+                            <label for="chkRailwayBoundary" class="flex items-center gap-1.5 font-bold text-slate-800 cursor-pointer select-none">
+                                <input type="checkbox" id="chkRailwayBoundary" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4">
+                                <span>鉄道路線図を表示</span>
+                            </label>
+                        </div>
+                        <p class="text-[11px] text-slate-500 leading-relaxed">
+                            全国の鉄道路線データ(GeoJSON)を読み込み、マップ上に独立したスタイルで重ね描画します。
+                        </p>
+                    </div>
+
+                    <!-- スタイルカスタム -->
+                    <div class="p-3 bg-white rounded-xl border border-slate-200 text-xs space-y-3">
+                        <div class="font-bold text-slate-700 border-b border-slate-100 pb-1.5">標準路線スタイル</div>
+
+                        <!-- 線の色 -->
+                        <div class="flex items-center justify-between">
+                            <span class="text-slate-600 font-medium">路線カラー:</span>
+                            <input type="color" id="colorRailwayBoundary" value="#334155" class="w-7 h-7 rounded cursor-pointer border border-slate-300">
+                        </div>
+
+                        <!-- 線の太さ -->
+                        <div class="space-y-1">
+                            <span class="text-slate-600 font-medium">線の太さ:</span>
+                            <select id="weightRailwayBoundary" class="w-full bg-white border border-slate-200 rounded-lg p-2 text-slate-700">
+                                <option value="0.5">0.5px (極細)</option>
+                                <option value="1">1.0px (細め)</option>
+                                <option value="1.5" selected>1.5px (標準)</option>
+                                <option value="2">2.0px (やや太め)</option>
+                                <option value="2.5">2.5px (太め)</option>
+                                <option value="3">3.0px (強調)</option>
+                                <option value="4">4.0px (極太)</option>
+                            </select>
+                        </div>
+
+                        <!-- 線種 -->
+                        <div class="space-y-1">
+                            <span class="text-slate-600 font-medium">線のスタイル:</span>
+                            <select id="styleRailwayBoundary" class="w-full bg-white border border-slate-200 rounded-lg p-2 text-slate-700">
+                                <option value="solid" selected>実線</option>
+                                <option value="dashed">破線</option>
+                                <option value="dotted">点線</option>
+                            </select>
+                        </div>
+                    </div>
+
+                </div>
+
             </div>
 
             <!-- クレジット -->
-            <div class="p-3 bg-slate-50 border-t border-slate-200 text-[11px] text-slate-400 text-center">
+            <div class="p-3 bg-slate-50 border-t border-slate-200 text-[11px] text-slate-400 text-center shrink-0">
                 出典: 国土交通省「国土数値情報（行政区域データ・鉄道時系列データ）」<br>
                 データ加工: smartnews-smri/japan-topography
             </div>
@@ -529,7 +570,7 @@
                 </div>
             </div>
 
-            <div class="absolute bottom-28 right-3 z-10 flex flex-col gap-2">
+            <div class="absolute bottom-8 right-3 z-10 flex flex-col gap-2">
                 <button id="btnResetView" class="bg-white hover:bg-slate-50 text-slate-700 p-2.5 rounded-xl shadow-md border border-slate-200 transition flex items-center justify-center" title="全体を表示">
                     <i data-lucide="scan" class="w-5 h-5"></i>
                 </button>
