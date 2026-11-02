@@ -49,6 +49,7 @@ const LANDLOCKED_PREFS = new Set(["09", "10", "11", "19", "20", "21", "25", "29"
 // --- アプリケーション状態 ---
 let mapMode = "city"; 
 let pendingMapMode = null;
+let activeTab = "paint"; // "paint" | "railway"
 
 let map = null;
 let currentTileLayer = null;
@@ -81,9 +82,7 @@ let boundarySettings = {
     ward: { show: true, color: "#64748b", weight: 1.0, style: "dashed" }
 };
 
-// ==========================================
-// 独立した路線図（鉄道）設定オブジェクト
-// ==========================================
+// 独立した路線図（鉄道）設定
 let railwayConfig = {
     show: false,
     defaultStyle: {
@@ -92,14 +91,8 @@ let railwayConfig = {
         style: "solid",
         opacity: 0.95
     },
-    lineStyles: {
-        // 例: '山手線': { color: '#80C241', weight: 4 },
-        // 例: '中央線': { color: '#FF4500', weight: 3.5 }
-    },
-    segmentStyles: {
-        // 例: '東京-神田': { color: '#FFD700', weight: 6 },
-        // 例: 'SEG-001': { color: '#E60012', weight: 5 }
-    }
+    lineStyles: {},
+    segmentStyles: {}
 };
 
 let boundaryGeoJsons = { coast: null, pref: null, city: null, county: null, ward: null, railway: null };
@@ -124,7 +117,7 @@ const STORAGE_KEY_TILE_TYPE = "japan_map_tile_type_v1";
 const STORAGE_KEY_CUSTOM_COLORS = "japan_map_custom_colors_v1";
 
 window.onload = async function() {
-    lucide.createIcons();
+    initTabUI();
     initPwaSupport();
     initPrefModalUI();
     loadFromLocalStorage();
@@ -135,8 +128,8 @@ window.onload = async function() {
     initBoundaryUIValues();
     updateHeaderPrefButton();
     updateModeUI();
+    lucide.createIcons();
 
-    // 起動時に路線図が有効なら自動ロードして描画
     if (railwayConfig.show) {
         await renderRailwayLayer();
     }
@@ -146,6 +139,50 @@ window.onload = async function() {
 
 let deferredPrompt = null;
 let isRefreshing = false;
+
+// --- タブ切り替えの確実な初期化と動作制御 ---
+function initTabUI() {
+    const btnTabPaint = document.getElementById("btnTabPaint");
+    const btnTabRailway = document.getElementById("btnTabRailway");
+
+    if (btnTabPaint) {
+        btnTabPaint.addEventListener("click", () => switchTab("paint"));
+    }
+    if (btnTabRailway) {
+        btnTabRailway.addEventListener("click", () => switchTab("railway"));
+    }
+
+    switchTab("paint");
+}
+
+function switchTab(targetTab) {
+    activeTab = targetTab;
+
+    const btnTabPaint = document.getElementById("btnTabPaint");
+    const btnTabRailway = document.getElementById("btnTabRailway");
+    const contentPaint = document.getElementById("tabContentPaint");
+    const contentRailway = document.getElementById("tabContentRailway");
+
+    const baseClass = "py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer";
+    const activeClass = `${baseClass} bg-indigo-600 text-white shadow-sm`;
+    const inactiveClass = `${baseClass} bg-slate-100 text-slate-600 hover:bg-slate-200`;
+
+    if (targetTab === "paint") {
+        if (btnTabPaint) btnTabPaint.className = activeClass;
+        if (btnTabRailway) btnTabRailway.className = inactiveClass;
+        if (contentPaint) contentPaint.classList.remove("hidden");
+        if (contentRailway) contentRailway.classList.add("hidden");
+    } else {
+        if (btnTabPaint) btnTabPaint.className = inactiveClass;
+        if (btnTabRailway) btnTabRailway.className = activeClass;
+        if (contentPaint) contentPaint.classList.add("hidden");
+        if (contentRailway) contentRailway.classList.remove("hidden");
+    }
+
+    if (typeof lucide !== 'undefined' && lucide.createIcons) {
+        lucide.createIcons();
+    }
+}
 
 function initPwaSupport() {
     if ("serviceWorker" in navigator) {
@@ -199,7 +236,6 @@ function getFeaturePrefCode(feature) {
     return "";
 }
 
-// --- 鉄道路線データ (2026_1031.geojson) から路線形状を取得 ---
 async function fetchRailwayData() {
     if (railwayGeoJsonCache) return railwayGeoJsonCache;
 
@@ -221,32 +257,22 @@ async function fetchRailwayData() {
     }
 }
 
-// 優先順位付き 鉄道スタイル計算関数
 function getRailwayFeatureStyle(feature) {
     if (!railwayConfig.show) {
         return { opacity: 0, weight: 0 };
     }
 
     const props = feature.properties || {};
-
-    // 路線名の取得（N02_003 / line_name / line / name に対応）
     const lineName = props.N02_003 || props.line_name || props.line || props.name;
-
-    // 駅間・区間識別子の取得（segment_id または "from-to"）
     const segmentId = props.segment_id || (props.from && props.to ? `${props.from}-${props.to}` : null);
 
     let currentStyle = { ...railwayConfig.defaultStyle };
 
-    // 判定 1: 駅間（区間）個別設定
     if (segmentId && railwayConfig.segmentStyles[segmentId]) {
         currentStyle = { ...currentStyle, ...railwayConfig.segmentStyles[segmentId] };
-    }
-    // 判定 2: 路線別個別設定
-    else if (lineName && railwayConfig.lineStyles[lineName]) {
+    } else if (lineName && railwayConfig.lineStyles[lineName]) {
         currentStyle = { ...currentStyle, ...railwayConfig.lineStyles[lineName] };
-    }
-    // 判定 3: GeoJSON属性の直接指定値
-    else if (props.color || props.weight) {
+    } else if (props.color || props.weight) {
         if (props.color) currentStyle.color = props.color;
         if (props.weight) currentStyle.weight = parseFloat(props.weight);
         if (props.style) currentStyle.style = props.style;
@@ -358,26 +384,36 @@ function loadFromLocalStorage() {
 }
 
 function initBoundaryUIValues() {
-    document.getElementById("bgColorPicker").value = mapBgColor;
-    applyMapBgColor(mapBgColor);
+    const bgColorPicker = document.getElementById("bgColorPicker");
+    if (bgColorPicker) {
+        bgColorPicker.value = mapBgColor;
+        applyMapBgColor(mapBgColor);
+    }
 
-    document.getElementById("landColorPicker").value = defaultLandColor;
-    document.getElementById("chkShowBaseMap").checked = showBaseMap;
+    const landColorPicker = document.getElementById("landColorPicker");
+    if (landColorPicker) landColorPicker.value = defaultLandColor;
+
+    const chkShowBaseMap = document.getElementById("chkShowBaseMap");
+    if (chkShowBaseMap) chkShowBaseMap.checked = showBaseMap;
 
     const chkOpacity = document.getElementById("chkEnableOpacity");
-    chkOpacity.checked = enableLandOpacity;
+    if (chkOpacity) chkOpacity.checked = enableLandOpacity;
 
     const rangeOpacity = document.getElementById("landOpacityRange");
-    rangeOpacity.value = defaultLandOpacity;
-    rangeOpacity.disabled = !enableLandOpacity;
-    document.getElementById("landOpacityVal").textContent = enableLandOpacity ? defaultLandOpacity : "1.00 (不透明)";
+    if (rangeOpacity) {
+        rangeOpacity.value = defaultLandOpacity;
+        rangeOpacity.disabled = !enableLandOpacity;
+    }
+    const landOpacityVal = document.getElementById("landOpacityVal");
+    if (landOpacityVal) landOpacityVal.textContent = enableLandOpacity ? defaultLandOpacity : "1.00 (不透明)";
 
     updateTileButtonsUI(selectedTileType);
 
     if (bgImageDataUrl) {
         applyBgImage(bgImageDataUrl);
-        document.getElementById("bgImageName").textContent = "背景画像適用中";
-        document.getElementById("btnRemoveBgImage").classList.remove("hidden");
+        const bgImageName = document.getElementById("bgImageName");
+        if (bgImageName) bgImageName.textContent = "背景画像適用中";
+        document.getElementById("btnRemoveBgImage")?.classList.remove("hidden");
     }
 
     const uiMap = [
@@ -392,19 +428,24 @@ function initBoundaryUIValues() {
         const chk = document.getElementById(item.chk);
         if (chk && boundarySettings[item.type]) {
             chk.checked = boundarySettings[item.type].show;
-            document.getElementById(item.color).value = boundarySettings[item.type].color;
-            if (document.getElementById(item.weight)) document.getElementById(item.weight).value = boundarySettings[item.type].weight;
-            if (document.getElementById(item.style)) document.getElementById(item.style).value = boundarySettings[item.type].style;
+            const colorEl = document.getElementById(item.color);
+            if (colorEl) colorEl.value = boundarySettings[item.type].color;
+            const weightEl = document.getElementById(item.weight);
+            if (weightEl) weightEl.value = boundarySettings[item.type].weight;
+            const styleEl = document.getElementById(item.style);
+            if (styleEl) styleEl.value = boundarySettings[item.type].style;
         }
     });
 
-    // 鉄道の設定UI初期値設定
     const chkRail = document.getElementById("chkRailwayBoundary");
     if (chkRail) {
         chkRail.checked = railwayConfig.show;
-        document.getElementById("colorRailwayBoundary").value = railwayConfig.defaultStyle.color;
-        document.getElementById("weightRailwayBoundary").value = railwayConfig.defaultStyle.weight;
-        document.getElementById("styleRailwayBoundary").value = railwayConfig.defaultStyle.style;
+        const colorRail = document.getElementById("colorRailwayBoundary");
+        if (colorRail) colorRail.value = railwayConfig.defaultStyle.color;
+        const weightRail = document.getElementById("weightRailwayBoundary");
+        if (weightRail) weightRail.value = railwayConfig.defaultStyle.weight;
+        const styleRail = document.getElementById("styleRailwayBoundary");
+        if (styleRail) styleRail.value = railwayConfig.defaultStyle.style;
     }
 }
 
@@ -451,6 +492,8 @@ function isIslandMunicipality(code, props = null) {
 
 function initPrefModalUI() {
     const gridEl = document.getElementById("prefCheckboxGrid");
+    if (!gridEl) return;
+
     gridEl.innerHTML = REGIONS.map(region => {
         const prefCheckboxes = region.codes.map(code => {
             const pref = PREFECTURES.find(p => p.code === code);
@@ -505,15 +548,15 @@ function initPrefModalUI() {
         });
     });
 
-    document.getElementById("modalToggleIsland13").addEventListener("change", (e) => tempIncludeIslands["13"] = e.target.checked);
-    document.getElementById("modalToggleIsland46").addEventListener("change", (e) => tempIncludeIslands["46"] = e.target.checked);
-    document.getElementById("modalToggleIsland47").addEventListener("change", (e) => tempIncludeIslands["47"] = e.target.checked);
+    document.getElementById("modalToggleIsland13")?.addEventListener("change", (e) => tempIncludeIslands["13"] = e.target.checked);
+    document.getElementById("modalToggleIsland46")?.addEventListener("change", (e) => tempIncludeIslands["46"] = e.target.checked);
+    document.getElementById("modalToggleIsland47")?.addEventListener("change", (e) => tempIncludeIslands["47"] = e.target.checked);
 
-    document.getElementById("btnOpenPrefModal").addEventListener("click", openPrefModal);
-    document.getElementById("btnClosePrefModal").addEventListener("click", closePrefModal);
-    document.getElementById("btnCancelPrefModal").addEventListener("click", closePrefModal);
+    document.getElementById("btnOpenPrefModal")?.addEventListener("click", openPrefModal);
+    document.getElementById("btnClosePrefModal")?.addEventListener("click", closePrefModal);
+    document.getElementById("btnCancelPrefModal")?.addEventListener("click", closePrefModal);
     
-    document.getElementById("btnApplyPrefModal").addEventListener("click", () => {
+    document.getElementById("btnApplyPrefModal")?.addEventListener("click", () => {
         selectedPrefCodes = [...tempSelectedCodes];
         if (selectedPrefCodes.length === 0) selectedPrefCodes = ["ALL"];
         includeIslands = { ...tempIncludeIslands };
@@ -523,20 +566,20 @@ function initPrefModalUI() {
         loadPrefectureData(selectedPrefCodes);
     });
 
-    document.getElementById("btnModeCity").addEventListener("click", () => requestMapModeSwitch("city"));
-    document.getElementById("btnModePref").addEventListener("click", () => requestMapModeSwitch("pref"));
+    document.getElementById("btnModeCity")?.addEventListener("click", () => requestMapModeSwitch("city"));
+    document.getElementById("btnModePref")?.addEventListener("click", () => requestMapModeSwitch("pref"));
 
-    document.getElementById("btnCancelModeConfirm").addEventListener("click", () => {
-        document.getElementById("modeConfirmModal").classList.add("hidden");
+    document.getElementById("btnCancelModeConfirm")?.addEventListener("click", () => {
+        document.getElementById("modeConfirmModal")?.classList.add("hidden");
         pendingMapMode = null;
     });
 
-    document.getElementById("btnApplyModeConfirm").addEventListener("click", () => {
+    document.getElementById("btnApplyModeConfirm")?.addEventListener("click", () => {
         if (pendingMapMode) {
             mapMode = pendingMapMode;
             colorState = {};
             pendingMapMode = null;
-            document.getElementById("modeConfirmModal").classList.add("hidden");
+            document.getElementById("modeConfirmModal")?.classList.add("hidden");
             updateModeUI();
             updateHeaderPrefButton();
             saveToLocalStorage();
@@ -550,8 +593,9 @@ function requestMapModeSwitch(targetMode) {
 
     pendingMapMode = targetMode;
     const label = targetMode === "pref" ? "「都道府県版」" : "「市区町村版」";
-    document.getElementById("targetModeLabel").textContent = label;
-    document.getElementById("modeConfirmModal").classList.remove("hidden");
+    const targetLabelEl = document.getElementById("targetModeLabel");
+    if (targetLabelEl) targetLabelEl.textContent = label;
+    document.getElementById("modeConfirmModal")?.classList.remove("hidden");
     lucide.createIcons();
 }
 
@@ -567,27 +611,27 @@ function updateModeUI() {
     const wardBoundaryBox = document.getElementById("wardBoundaryBox");
 
     if (mapMode === "pref") {
-        btnPref.className = "py-2.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 border shadow-sm bg-indigo-600 text-white border-indigo-600";
-        btnCity.className = "py-2.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 border bg-white text-slate-700 border-slate-200 hover:bg-slate-50";
-        prefSelectSection.classList.add("hidden");
-        appTitle.textContent = "都道府県ペイントエディタ";
-        unitLabel.textContent = "都道府県";
-        coloredListTitle.textContent = "塗った都道府県リスト";
+        if (btnPref) btnPref.className = "py-2.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 border shadow-sm bg-indigo-600 text-white border-indigo-600";
+        if (btnCity) btnCity.className = "py-2.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 border bg-white text-slate-700 border-slate-200 hover:bg-slate-50";
+        prefSelectSection?.classList.add("hidden");
+        if (appTitle) appTitle.textContent = "都道府県ペイントエディタ";
+        if (unitLabel) unitLabel.textContent = "都道府県";
+        if (coloredListTitle) coloredListTitle.textContent = "塗った都道府県リスト";
 
-        cityBoundaryBox.classList.add("hidden");
-        countyBoundaryBox.classList.add("hidden");
-        wardBoundaryBox.classList.add("hidden");
+        cityBoundaryBox?.classList.add("hidden");
+        countyBoundaryBox?.classList.add("hidden");
+        wardBoundaryBox?.classList.add("hidden");
     } else {
-        btnCity.className = "py-2.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 border shadow-sm bg-indigo-600 text-white border-indigo-600";
-        btnPref.className = "py-2.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 border bg-white text-slate-700 border-slate-200 hover:bg-slate-50";
-        prefSelectSection.classList.remove("hidden");
-        appTitle.textContent = "市区町村ペイントエディタ";
-        unitLabel.textContent = "市区町村";
-        coloredListTitle.textContent = "塗った市区町村リスト";
+        if (btnCity) btnCity.className = "py-2.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 border shadow-sm bg-indigo-600 text-white border-indigo-600";
+        if (btnPref) btnPref.className = "py-2.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 border bg-white text-slate-700 border-slate-200 hover:bg-slate-50";
+        prefSelectSection?.classList.remove("hidden");
+        if (appTitle) appTitle.textContent = "市区町村ペイントエディタ";
+        if (unitLabel) unitLabel.textContent = "市区町村";
+        if (coloredListTitle) coloredListTitle.textContent = "塗った市区町村リスト";
 
-        cityBoundaryBox.classList.remove("hidden");
-        countyBoundaryBox.classList.remove("hidden");
-        wardBoundaryBox.classList.remove("hidden");
+        cityBoundaryBox?.classList.remove("hidden");
+        countyBoundaryBox?.classList.remove("hidden");
+        wardBoundaryBox?.classList.remove("hidden");
     }
 }
 
@@ -596,18 +640,21 @@ function openPrefModal() {
     tempIncludeIslands = { ...includeIslands };
     syncCheckboxesFromTemp();
     syncModalIslandTogglesFromTemp();
-    document.getElementById("prefModal").classList.remove("hidden");
+    document.getElementById("prefModal")?.classList.remove("hidden");
     lucide.createIcons();
 }
 
 function syncModalIslandTogglesFromTemp() {
-    document.getElementById("modalToggleIsland13").checked = tempIncludeIslands["13"];
-    document.getElementById("modalToggleIsland46").checked = tempIncludeIslands["46"];
-    document.getElementById("modalToggleIsland47").checked = tempIncludeIslands["47"];
+    const t13 = document.getElementById("modalToggleIsland13");
+    const t46 = document.getElementById("modalToggleIsland46");
+    const t47 = document.getElementById("modalToggleIsland47");
+    if (t13) t13.checked = tempIncludeIslands["13"];
+    if (t46) t46.checked = tempIncludeIslands["46"];
+    if (t47) t47.checked = tempIncludeIslands["47"];
 }
 
 function closePrefModal() {
-    document.getElementById("prefModal").classList.add("hidden");
+    document.getElementById("prefModal")?.classList.add("hidden");
 }
 
 function updateTempSelectedFromCheckboxes() {
@@ -625,6 +672,7 @@ function syncCheckboxesFromTemp() {
 function updateModalFooterCount() {
     const isAll = tempSelectedCodes.includes("ALL") || tempSelectedCodes.length === 47;
     const countEl = document.getElementById("modalSelectedCount");
+    if (!countEl) return;
     if (isAll) countEl.textContent = "全国（すべての都道府県）";
     else if (tempSelectedCodes.length === 0) countEl.textContent = "未選択（全国を表示）";
     else countEl.textContent = `${getSelectedPrefLabel(tempSelectedCodes)} (${tempSelectedCodes.length}都道府県)`;
@@ -633,6 +681,8 @@ function updateModalFooterCount() {
 function updateHeaderPrefButton() {
     const labelEl = document.getElementById("selectedPrefLabel");
     const badgeEl = document.getElementById("selectedPrefBadge");
+
+    if (!labelEl || !badgeEl) return;
 
     if (mapMode === "pref") {
         labelEl.textContent = "全国（47都道府県）";
@@ -664,6 +714,8 @@ function initColorPalettes() {
 
 function renderBasePalette() {
     const paletteEl = document.getElementById("colorPalette");
+    if (!paletteEl) return;
+
     paletteEl.innerHTML = BASE_COLORS.map((color) => `
         <button type="button" data-color="${color}" class="color-swatch w-7 h-7 rounded-full border border-slate-300 shadow-sm transition hover:scale-110 flex items-center justify-center ${color.toLowerCase() === selectedColor.toLowerCase() ? 'ring-2 ring-indigo-600 ring-offset-2' : ''}" style="background-color: ${color}">
         </button>
@@ -676,6 +728,8 @@ function renderBasePalette() {
 
 function renderCustomPalette() {
     const customPaletteEl = document.getElementById("customColorPalette");
+    if (!customPaletteEl) return;
+
     customPaletteEl.innerHTML = customColors.map((color, index) => `
         <label data-index="${index}" data-color="${color}" class="custom-swatch relative w-7 h-7 rounded-full border border-slate-300 shadow-sm transition hover:scale-110 flex items-center justify-center cursor-pointer ${color.toLowerCase() === selectedColor.toLowerCase() ? 'ring-2 ring-indigo-600 ring-offset-2' : ''}" style="background-color: ${color}">
             <input type="color" value="${color}" data-index="${index}" class="custom-color-input opacity-0 absolute inset-0 w-full h-full cursor-pointer">
@@ -719,6 +773,8 @@ function setToolMode(mode) {
     activeTool = mode;
     const btnPaint = document.getElementById("btnPaintMode");
     const btnEraser = document.getElementById("btnEraserMode");
+    if (!btnPaint || !btnEraser) return;
+
     if (mode === "paint") {
         btnPaint.className = "flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg border border-indigo-600 bg-indigo-50 text-indigo-700 transition shadow-sm";
         btnEraser.className = "flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition";
@@ -737,7 +793,6 @@ function initMap() {
 
     L.control.zoom({ position: "bottomright" }).addTo(map);
 
-    // 重ね順の指定
     map.createPane("landPane");
     map.getPane("landPane").style.zIndex = 400;
 
@@ -745,7 +800,6 @@ function initMap() {
     map.getPane("boundaryPane").style.zIndex = 500;
     map.getPane("boundaryPane").style.pointerEvents = "none";
 
-    // 鉄道用最前面ペイン
     map.createPane("railwayPane");
     map.getPane("railwayPane").style.zIndex = 600;
     map.getPane("railwayPane").style.pointerEvents = "none";
@@ -781,18 +835,18 @@ function updateTileButtonsUI(tileType) {
 }
 
 function bindEvents() {
-    document.getElementById("btnPaintMode").addEventListener("click", () => setToolMode("paint"));
-    document.getElementById("btnEraserMode").addEventListener("click", () => setToolMode("eraser"));
+    document.getElementById("btnPaintMode")?.addEventListener("click", () => setToolMode("paint"));
+    document.getElementById("btnEraserMode")?.addEventListener("click", () => setToolMode("eraser"));
 
-    document.getElementById("btnFillAll").addEventListener("click", fillAllCurrentPref);
-    document.getElementById("btnClearAll").addEventListener("click", clearAllCurrentPref);
+    document.getElementById("btnFillAll")?.addEventListener("click", fillAllCurrentPref);
+    document.getElementById("btnClearAll")?.addEventListener("click", clearAllCurrentPref);
 
-    document.getElementById("btnResetView").addEventListener("click", fitToCurrentBounds);
+    document.getElementById("btnResetView")?.addEventListener("click", fitToCurrentBounds);
 
-    document.getElementById("btnExportJson").addEventListener("click", exportStateJson);
-    document.getElementById("btnImportJson").addEventListener("change", importStateJson);
-    document.getElementById("btnExportPng").addEventListener("click", exportMapImage);
-    document.getElementById("btnExportSvg").addEventListener("click", exportMapSvg);
+    document.getElementById("btnExportJson")?.addEventListener("click", exportStateJson);
+    document.getElementById("btnImportJson")?.addEventListener("change", importStateJson);
+    document.getElementById("btnExportPng")?.addEventListener("click", exportMapImage);
+    document.getElementById("btnExportSvg")?.addEventListener("click", exportMapSvg);
 
     const cityListEl = document.getElementById("coloredCityList");
     if (cityListEl) {
@@ -821,12 +875,12 @@ function bindEvents() {
         applySampleCategoryColors();
     });
 
-    document.getElementById("bgColorPicker").addEventListener("input", (e) => {
+    document.getElementById("bgColorPicker")?.addEventListener("input", (e) => {
         applyMapBgColor(e.target.value);
         saveToLocalStorage();
     });
 
-    document.getElementById("chkShowBaseMap").addEventListener("change", (e) => {
+    document.getElementById("chkShowBaseMap")?.addEventListener("change", (e) => {
         showBaseMap = e.target.checked;
         updateTileLayer(selectedTileType);
         saveToLocalStorage();
@@ -841,37 +895,40 @@ function bindEvents() {
         });
     });
 
-    document.getElementById("landColorPicker").addEventListener("input", (e) => {
+    document.getElementById("landColorPicker")?.addEventListener("input", (e) => {
         defaultLandColor = e.target.value;
         refreshLayerStyles();
         saveToLocalStorage();
     });
 
-    document.getElementById("chkEnableOpacity").addEventListener("change", (e) => {
+    document.getElementById("chkEnableOpacity")?.addEventListener("change", (e) => {
         enableLandOpacity = e.target.checked;
         const rangeOpacity = document.getElementById("landOpacityRange");
-        rangeOpacity.disabled = !enableLandOpacity;
-        document.getElementById("landOpacityVal").textContent = enableLandOpacity ? defaultLandOpacity : "1.00 (不透明)";
+        if (rangeOpacity) rangeOpacity.disabled = !enableLandOpacity;
+        const valEl = document.getElementById("landOpacityVal");
+        if (valEl) valEl.textContent = enableLandOpacity ? defaultLandOpacity : "1.00 (不透明)";
         refreshLayerStyles();
         saveToLocalStorage();
     });
 
-    document.getElementById("landOpacityRange").addEventListener("input", (e) => {
+    document.getElementById("landOpacityRange")?.addEventListener("input", (e) => {
         defaultLandOpacity = parseFloat(e.target.value);
-        document.getElementById("landOpacityVal").textContent = defaultLandOpacity;
+        const valEl = document.getElementById("landOpacityVal");
+        if (valEl) valEl.textContent = defaultLandOpacity;
         refreshLayerStyles();
         saveToLocalStorage();
     });
 
-    document.getElementById("bgImageInput").addEventListener("change", (e) => {
+    document.getElementById("bgImageInput")?.addEventListener("change", (e) => {
         const file = e.target.files[0];
         if (file) {
             const reader = new FileReader();
             reader.onload = (evt) => {
                 bgImageDataUrl = evt.target.result;
                 applyBgImage(bgImageDataUrl);
-                document.getElementById("bgImageName").textContent = file.name;
-                document.getElementById("btnRemoveBgImage").classList.remove("hidden");
+                const nameEl = document.getElementById("bgImageName");
+                if (nameEl) nameEl.textContent = file.name;
+                document.getElementById("btnRemoveBgImage")?.classList.remove("hidden");
                 saveToLocalStorage();
                 showToast("背景画像を設定しました");
             };
@@ -879,17 +936,18 @@ function bindEvents() {
         }
     });
 
-    document.getElementById("btnRemoveBgImage").addEventListener("click", () => {
+    document.getElementById("btnRemoveBgImage")?.addEventListener("click", () => {
         bgImageDataUrl = null;
         applyBgImage(null);
-        document.getElementById("bgImageName").textContent = "背景画像を選択...";
-        document.getElementById("btnRemoveBgImage").classList.add("hidden");
-        document.getElementById("bgImageInput").value = "";
+        const nameEl = document.getElementById("bgImageName");
+        if (nameEl) nameEl.textContent = "背景画像を選択...";
+        document.getElementById("btnRemoveBgImage")?.classList.add("hidden");
+        const fileInput = document.getElementById("bgImageInput");
+        if (fileInput) fileInput.value = "";
         saveToLocalStorage();
         showToast("背景画像を削除しました");
     });
 
-    // 境界線イベントハンドラ（鉄道以外）
     const boundaryUIKeys = [
         { type: "coast", chk: "chkCoastBoundary", color: "colorCoastBoundary", weight: "weightCoastBoundary", style: "styleCoastBoundary" },
         { type: "pref", chk: "chkPrefBoundary", color: "colorPrefBoundary", weight: "weightPrefBoundary", style: "stylePrefBoundary" },
@@ -905,7 +963,7 @@ function bindEvents() {
         const updateSetting = () => {
             boundarySettings[item.type] = {
                 show: chkEl.checked,
-                color: document.getElementById(item.color).value,
+                color: document.getElementById(item.color)?.value || "#000000",
                 weight: parseFloat(document.getElementById(item.weight)?.value || 1),
                 style: document.getElementById(item.style)?.value || "solid"
             };
@@ -919,17 +977,16 @@ function bindEvents() {
         document.getElementById(item.style)?.addEventListener("change", updateSetting);
     });
 
-    // 鉄道独立設定のイベントハンドラ
     const chkRail = document.getElementById("chkRailwayBoundary");
     const colorRail = document.getElementById("colorRailwayBoundary");
     const weightRail = document.getElementById("weightRailwayBoundary");
     const styleRail = document.getElementById("styleRailwayBoundary");
 
     const updateRailwaySetting = async () => {
-        railwayConfig.show = chkRail.checked;
-        railwayConfig.defaultStyle.color = colorRail.value;
-        railwayConfig.defaultStyle.weight = parseFloat(weightRail.value);
-        railwayConfig.defaultStyle.style = styleRail.value;
+        if (chkRail) railwayConfig.show = chkRail.checked;
+        if (colorRail) railwayConfig.defaultStyle.color = colorRail.value;
+        if (weightRail) railwayConfig.defaultStyle.weight = parseFloat(weightRail.value);
+        if (styleRail) railwayConfig.defaultStyle.style = styleRail.value;
 
         await renderRailwayLayer();
         saveToLocalStorage();
@@ -1124,7 +1181,6 @@ function renderBoundaryLayers() {
     });
 }
 
-// 独立した路線図描画処理
 async function renderRailwayLayer() {
     if (boundaryLayers.railway) {
         map.removeLayer(boundaryLayers.railway);
@@ -1283,7 +1339,10 @@ function fitToCurrentBounds() {
 }
 
 function updateUIStats() {
-    document.getElementById("currentPrefName").textContent = mapMode === "pref" ? "全国（都道府県版）" : getSelectedPrefLabel(selectedPrefCodes);
+    const currentPrefNameEl = document.getElementById("currentPrefName");
+    if (currentPrefNameEl) {
+        currentPrefNameEl.textContent = mapMode === "pref" ? "全国（都道府県版）" : getSelectedPrefLabel(selectedPrefCodes);
+    }
 
     let allCodes = [];
     if (mapMode === "pref") {
@@ -1297,13 +1356,21 @@ function updateUIStats() {
     const count = coloredCodes.length;
     const percent = total > 0 ? Math.round((count / total) * 100) : 0;
 
-    document.getElementById("coloredCount").textContent = count;
-    document.getElementById("totalCount").textContent = total;
-    document.getElementById("progressPercent").textContent = `${percent}%`;
-    document.getElementById("progressBar").style.width = `${percent}%`;
-    document.getElementById("coloredBadge").textContent = `${count}件`;
+    const coloredCountEl = document.getElementById("coloredCount");
+    const totalCountEl = document.getElementById("totalCount");
+    const progressPercentEl = document.getElementById("progressPercent");
+    const progressBarEl = document.getElementById("progressBar");
+    const coloredBadgeEl = document.getElementById("coloredBadge");
+
+    if (coloredCountEl) coloredCountEl.textContent = count;
+    if (totalCountEl) totalCountEl.textContent = total;
+    if (progressPercentEl) progressPercentEl.textContent = `${percent}%`;
+    if (progressBarEl) progressBarEl.style.width = `${percent}%`;
+    if (coloredBadgeEl) coloredBadgeEl.textContent = `${count}件`;
 
     const listEl = document.getElementById("coloredCityList");
+    if (!listEl) return;
+
     if (count === 0) {
         listEl.innerHTML = `<div class="text-slate-400 text-center py-6 text-xs">まだ塗りつぶされた地域はありません</div>`;
         return;
@@ -1355,6 +1422,7 @@ function getPrefName(code) {
 
 function showHoverCard(show, prefName = "", cityName = "", code = "") {
     const card = document.getElementById("hoverCard");
+    if (!card) return;
     if (show) {
         document.getElementById("hoverPref").textContent = prefName;
         document.getElementById("hoverCity").textContent = cityName;
@@ -1367,8 +1435,10 @@ function showHoverCard(show, prefName = "", cityName = "", code = "") {
 
 function showLoading(show, text = "") {
     const overlay = document.getElementById("loadingOverlay");
+    if (!overlay) return;
     if (show) {
-        document.getElementById("loadingText").textContent = text;
+        const textEl = document.getElementById("loadingText");
+        if (textEl) textEl.textContent = text;
         overlay.classList.remove("hidden");
     } else {
         overlay.classList.add("hidden");
@@ -1377,6 +1447,7 @@ function showLoading(show, text = "") {
 
 function showToast(message, type = "info") {
     const container = document.getElementById("toastContainer");
+    if (!container) return;
     const toast = document.createElement("div");
     toast.className = `px-4 py-2.5 rounded-xl shadow-lg text-xs font-semibold flex items-center gap-2 pointer-events-auto transition-all transform duration-300 translate-y-2 opacity-0 ${
         type === 'error' ? 'bg-rose-600 text-white' : 'bg-slate-900 text-white'
