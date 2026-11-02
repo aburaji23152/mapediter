@@ -299,6 +299,7 @@ function getRailwayFeatureStyle(feature) {
     const props = feature.properties || {};
     const lineName = props.N02_003 || props.line_name || props.line || props.name;
     const segmentId = props.segment_id || (props.from && props.to ? `${props.from}-${props.to}` : null);
+    const isStation = Boolean(props.N02_005 || props.station_name || props.station);
 
     let currentStyle = { ...railwayConfig.defaultStyle };
 
@@ -316,9 +317,12 @@ function getRailwayFeatureStyle(feature) {
     if (currentStyle.style === "dashed") dashArray = "6, 4";
     else if (currentStyle.style === "dotted") dashArray = "2, 3";
 
+    // 駅（LineString）の場合は目立つよう太さを加算
+    const weight = isStation ? (currentStyle.weight + 2.5) : currentStyle.weight;
+
     return {
         color: currentStyle.color,
-        weight: currentStyle.weight,
+        weight: weight,
         dashArray: dashArray,
         opacity: currentStyle.opacity,
         lineCap: "round",
@@ -1220,7 +1224,7 @@ function renderBoundaryLayers() {
     });
 }
 
-// 修正：駅を円（circleMarker）で表示 ＆ ホバー時に同じ「路線名（N02_003）」を持つ路線全体を連動表示
+// 修正：駅（CircleMarker）を固定サイズ（radius: 5）＆白枠（weight: 2）で目立たせ、最前面に描画
 async function renderRailwayLayer() {
     if (boundaryLayers.railway) {
         map.removeLayer(boundaryLayers.railway);
@@ -1246,19 +1250,24 @@ async function renderRailwayLayer() {
     boundaryLayers.railway = L.geoJSON(boundaryGeoJsons.railway, {
         pane: "railwayPane",
         style: getRailwayFeatureStyle,
-        // 駅データ（Point）を円形（丸）マーカーとして描画
+        // 駅データ（Point）をくっきりした円形（CircleMarker）で描画
         pointToLayer: (feature, latlng) => {
             const style = getRailwayFeatureStyle(feature);
             return L.circleMarker(latlng, {
-                radius: (style.weight || 1.5) + 2.0,
-                fillColor: style.color || "#334155",
-                color: "#ffffff",
-                weight: 1,
+                radius: 5,                  // 丸の半径を視認しやすい固定サイズに設定
+                fillColor: style.color || "#1e293b",
+                color: "#ffffff",           // くっきり見える白い輪郭線
+                weight: 2,                  // 枠線の太さ
                 opacity: 1.0,
-                fillOpacity: style.opacity || 0.95
+                fillOpacity: 0.95
             });
         },
         onEachFeature: (feature, layer) => {
+            // Point型の駅マーカーを前面に押し出す
+            if (feature.geometry && feature.geometry.type === "Point" && typeof layer.bringToFront === "function") {
+                setTimeout(() => layer.bringToFront(), 0);
+            }
+
             layer.on({
                 mouseover: (e) => {
                     const props = feature.properties || {};
@@ -1273,15 +1282,26 @@ async function renderRailwayLayer() {
                             const lLineName = lProps.N02_003 || lProps.line_name || lProps.line || lProps.name;
                             
                             if (lLineName === lineName) {
+                                const isPt = l.feature?.geometry?.type === "Point";
                                 const origStyle = getRailwayFeatureStyle(l.feature);
+                                
                                 if (l.setStyle) {
-                                    l.setStyle({
-                                        color: "#ef4444", // 強調カラー（赤色）
-                                        fillColor: "#ef4444",
-                                        weight: (origStyle.weight || 1.5) + 2.5,
-                                        opacity: 1.0,
-                                        fillOpacity: 1.0
-                                    });
+                                    if (isPt) {
+                                        l.setStyle({
+                                            radius: 7,              // ホバー時に駅の丸を大きく
+                                            fillColor: "#ef4444",   // 強調赤色
+                                            color: "#ffffff",
+                                            weight: 2,
+                                            opacity: 1.0,
+                                            fillOpacity: 1.0
+                                        });
+                                    } else {
+                                        l.setStyle({
+                                            color: "#ef4444",       // 強調赤色
+                                            weight: (origStyle.weight || 1.5) + 3.0,
+                                            opacity: 1.0
+                                        });
+                                    }
                                     if (typeof l.bringToFront === "function") {
                                         l.bringToFront();
                                     }
@@ -1294,9 +1314,14 @@ async function renderRailwayLayer() {
                     showHoverCard(true, companyName, mainTitle, "鉄道データ");
                 },
                 mouseout: (e) => {
-                    // ホバー解除時に全鉄道レイヤーのスタイルを初期状態に一括復帰
+                    // ホバー解除時に全鉄道レイヤーのスタイルを初期状態に復帰＆駅を前面に再配置
                     if (boundaryLayers.railway) {
                         boundaryLayers.railway.resetStyle();
+                        boundaryLayers.railway.eachLayer(l => {
+                            if (l.feature?.geometry?.type === "Point" && typeof l.bringToFront === "function") {
+                                l.bringToFront();
+                            }
+                        });
                     }
                     showHoverCard(false);
                 }
@@ -1704,8 +1729,7 @@ function generateMapSvgString() {
                 const ptStr = project(geom.coordinates);
                 if (!ptStr.includes("NaN")) {
                     const [cx, cy] = ptStr.split(",");
-                    const radius = (style.weight || 1.5) + 2.0;
-                    pathsHtml += `    <circle cx="${cx}" cy="${cy}" r="${radius}" fill="${style.color}" stroke="#ffffff" stroke-width="1" opacity="${style.opacity}"/>\n`;
+                    pathsHtml += `    <circle cx="${cx}" cy="${cy}" r="5" fill="${style.color}" stroke="#ffffff" stroke-width="2" opacity="${style.opacity}"/>\n`;
                 }
             } else {
                 let d = "";
