@@ -82,7 +82,7 @@ let boundarySettings = {
     ward: { show: true, color: "#64748b", weight: 1.0, style: "dashed" }
 };
 
-// 修正：路線と駅の設定を独立して保持できる構造に拡張
+// 路線と駅の設定を完全分離
 let railwayConfig = {
     show: false,
     line: {
@@ -147,7 +147,6 @@ window.onload = async function() {
 let deferredPrompt = null;
 let isRefreshing = false;
 
-// --- タブ切り替えの制御 ---
 function initTabUI() {
     const btnTabPaint = document.getElementById("btnTabPaint");
     const btnTabRailway = document.getElementById("btnTabRailway");
@@ -298,7 +297,7 @@ async function fetchRailwayData() {
     }
 }
 
-// 路線・駅それぞれの個別スタイル取得関数
+// 路線と駅で個別のスタイルオブジェクトを取得する関数
 function getRailwayFeatureStyle(feature) {
     if (!railwayConfig.show) {
         return { opacity: 0, weight: 0 };
@@ -414,7 +413,6 @@ function loadFromLocalStorage() {
         if (savedBoundaries) boundarySettings = { ...boundarySettings, ...JSON.parse(savedBoundaries) };
         if (savedRailway) {
             const parsed = JSON.parse(savedRailway);
-            // 互換性維持
             railwayConfig = {
                 ...railwayConfig,
                 ...parsed,
@@ -489,11 +487,11 @@ function initBoundaryUIValues() {
         }
     });
 
-    // 鉄道・路線・駅 UI初期化
+    // 鉄道・路線・駅 UI初期値同期
     const chkRail = document.getElementById("chkRailwayBoundary");
     if (chkRail) chkRail.checked = railwayConfig.show;
 
-    // 路線設定
+    // 路線設定 UI
     const colorLine = document.getElementById("colorLineBoundary") || document.getElementById("colorRailwayBoundary");
     if (colorLine) colorLine.value = railwayConfig.line.color;
     const weightLine = document.getElementById("weightLineBoundary") || document.getElementById("weightRailwayBoundary");
@@ -501,11 +499,15 @@ function initBoundaryUIValues() {
     const styleLine = document.getElementById("styleLineBoundary") || document.getElementById("styleRailwayBoundary");
     if (styleLine) styleLine.value = railwayConfig.line.style;
 
-    // 駅設定
+    // 駅設定 UI
     const colorStation = document.getElementById("colorStationBoundary");
     if (colorStation) colorStation.value = railwayConfig.station.color;
     const sizeStation = document.getElementById("sizeStationBoundary");
     if (sizeStation) sizeStation.value = railwayConfig.station.radius;
+    const colorStationStroke = document.getElementById("colorStationStroke");
+    if (colorStationStroke) colorStationStroke.value = railwayConfig.station.strokeColor;
+    const weightStationStroke = document.getElementById("weightStationStroke");
+    if (weightStationStroke) weightStationStroke.value = railwayConfig.station.strokeWeight;
 }
 
 function applyMapBgColor(color) {
@@ -1035,21 +1037,30 @@ function bindEvents() {
         document.getElementById(item.style)?.addEventListener("change", updateSetting);
     });
 
-    // 鉄道・路線・駅 イベントバインド
+    // 鉄道・路線・駅の個別バインド処理
     const chkRail = document.getElementById("chkRailwayBoundary");
     const colorLine = document.getElementById("colorLineBoundary") || document.getElementById("colorRailwayBoundary");
     const weightLine = document.getElementById("weightLineBoundary") || document.getElementById("weightRailwayBoundary");
     const styleLine = document.getElementById("styleLineBoundary") || document.getElementById("styleRailwayBoundary");
+    
     const colorStation = document.getElementById("colorStationBoundary");
     const sizeStation = document.getElementById("sizeStationBoundary");
+    const colorStationStroke = document.getElementById("colorStationStroke");
+    const weightStationStroke = document.getElementById("weightStationStroke");
 
     const updateRailwaySetting = async () => {
         if (chkRail) railwayConfig.show = chkRail.checked;
+
+        // 路線設定更新
         if (colorLine) railwayConfig.line.color = colorLine.value;
         if (weightLine) railwayConfig.line.weight = parseFloat(weightLine.value);
         if (styleLine) railwayConfig.line.style = styleLine.value;
+
+        // 駅設定更新
         if (colorStation) railwayConfig.station.color = colorStation.value;
         if (sizeStation) railwayConfig.station.radius = parseFloat(sizeStation.value);
+        if (colorStationStroke) railwayConfig.station.strokeColor = colorStationStroke.value;
+        if (weightStationStroke) railwayConfig.station.strokeWeight = parseFloat(weightStationStroke.value);
 
         await renderRailwayLayer();
         saveToLocalStorage();
@@ -1059,8 +1070,11 @@ function bindEvents() {
     if (colorLine) colorLine.addEventListener("input", updateRailwaySetting);
     if (weightLine) weightLine.addEventListener("change", updateRailwaySetting);
     if (styleLine) styleLine.addEventListener("change", updateRailwaySetting);
+
     if (colorStation) colorStation.addEventListener("input", updateRailwaySetting);
     if (sizeStation) sizeStation.addEventListener("input", updateRailwaySetting);
+    if (colorStationStroke) colorStationStroke.addEventListener("input", updateRailwaySetting);
+    if (weightStationStroke) weightStationStroke.addEventListener("change", updateRailwaySetting);
 }
 
 function renderGeoJson(data, topologyFeatures) {
@@ -1252,7 +1266,7 @@ function renderBoundaryLayers() {
     });
 }
 
-// 修正：透明な Hitbox（判定領域）を裏側に敷くことでホバー判定を大幅に拡張 ＆ 路線・駅の個別カスタマイズ反映
+// 路線と駅を独立スタイルで描画し、広域ヒットボックス＆一括ホバー処理を行う関数
 async function renderRailwayLayer() {
     if (boundaryLayers.railway) {
         map.removeLayer(boundaryLayers.railway);
@@ -1275,44 +1289,14 @@ async function renderRailwayLayer() {
         }
     }
 
-    const featureLayerMap = new Map();
-
     boundaryLayers.railway = L.geoJSON(boundaryGeoJsons.railway, {
         pane: "railwayPane",
-        style: (feature) => {
-            const isPoint = feature.geometry?.type === "Point";
-            const isStation = isPoint || Boolean(feature.properties?.N02_005 || feature.properties?.station_name);
-
-            if (isStation) {
-                const st = railwayConfig.station;
-                return {
-                    fillColor: st.color,
-                    color: st.strokeColor || "#ffffff",
-                    weight: st.strokeWeight || 2,
-                    radius: st.radius || 5,
-                    opacity: st.opacity,
-                    fillOpacity: st.opacity
-                };
-            } else {
-                const ln = railwayConfig.line;
-                let dashArray = null;
-                if (ln.style === "dashed") dashArray = "6, 4";
-                else if (ln.style === "dotted") dashArray = "2, 3";
-                return {
-                    color: ln.color,
-                    weight: ln.weight,
-                    dashArray: dashArray,
-                    opacity: ln.opacity,
-                    lineCap: "round",
-                    lineJoin: "round"
-                };
-            }
-        },
+        style: (feature) => getRailwayFeatureStyle(feature),
         pointToLayer: (feature, latlng) => {
             const group = L.layerGroup();
             const st = railwayConfig.station;
             
-            // 1. 透明なホバー判定用のHitbox円（半径12pxと広く取る）
+            // 1. マウス判定用の透明なHitbox円（半径を実サイズより広く確保）
             const hitCircle = L.circleMarker(latlng, {
                 radius: Math.max((st.radius || 5) + 6, 12),
                 color: "rgba(0,0,0,0)",
@@ -1322,12 +1306,12 @@ async function renderRailwayLayer() {
                 interactive: true
             });
 
-            // 2. 実際の描画用の駅マーカー
+            // 2. 視覚表示用の駅マーカー（個別の色・半径・枠線を適用）
             const displayCircle = L.circleMarker(latlng, {
                 radius: st.radius || 5,
                 fillColor: st.color || "#1e293b",
                 color: st.strokeColor || "#ffffff",
-                weight: st.strokeWeight || 2,
+                weight: st.strokeWeight !== undefined ? st.strokeWeight : 2,
                 opacity: st.opacity || 0.95,
                 fillOpacity: st.opacity || 0.95,
                 interactive: false
@@ -1335,17 +1319,16 @@ async function renderRailwayLayer() {
 
             group.addLayer(hitCircle);
             group.addLayer(displayCircle);
-            group.displayTarget = displayCircle; // スタイル更新用の参照
+            group.displayTarget = displayCircle;
 
             return group;
         },
         onEachFeature: (feature, layer) => {
             const isLine = feature.geometry?.type === "LineString" || feature.geometry?.type === "MultiLineString";
             
-            // 路線（LineString）のホバー判定範囲を広くするため、裏に幅16pxの透明線を描画
+            // 路線の判定Hitbox調整
             if (isLine && typeof layer.setStyle === "function") {
                 const st = getRailwayFeatureStyle(feature);
-                // 透明な太い線でカーソル判定を補強
                 layer.setStyle({
                     weight: Math.max(st.weight + 12, 16),
                     color: st.color,
@@ -1353,9 +1336,10 @@ async function renderRailwayLayer() {
                 });
             }
 
-            featureLayerMap.set(feature, layer);
+            if (layer.displayTarget) {
+                layer.displayTarget._parentFeature = feature;
+            }
 
-            // 駅・路線のホバーイベント
             layer.on({
                 mouseover: (e) => {
                     const props = feature.properties || {};
@@ -1363,10 +1347,10 @@ async function renderRailwayLayer() {
                     const lineName = props.N02_003 || props.line_name || props.line || props.name || "";
                     const companyName = props.N02_004 || props.N02_002 || props.company || "鉄道事業者";
 
-                    // マウスホバー時、同一路線名（lineName）のすべてのセグメント・駅を一括ハイライト
+                    // マウスホバー時、同路線の要素を一括ハイライト
                     if (boundaryLayers.railway && lineName) {
                         boundaryLayers.railway.eachLayer(l => {
-                            const feat = l.feature || (l.displayTarget ? l._parentFeature : null);
+                            const feat = l.feature || (l.displayTarget ? l.displayTarget._parentFeature : null);
                             const lProps = feat?.properties || {};
                             const lLineName = lProps.N02_003 || lProps.line_name || lProps.line || lProps.name;
 
@@ -1380,7 +1364,7 @@ async function renderRailwayLayer() {
                                             radius: (railwayConfig.station.radius || 5) + 3,
                                             fillColor: "#ef4444",
                                             color: "#ffffff",
-                                            weight: 2,
+                                            weight: (railwayConfig.station.strokeWeight || 2) + 1,
                                             fillOpacity: 1.0
                                         });
                                     } else {
@@ -1402,10 +1386,10 @@ async function renderRailwayLayer() {
                     showHoverCard(true, companyName, mainTitle, "鉄道データ");
                 },
                 mouseout: (e) => {
-                    // ホバー解除時に初期スタイルへと復帰
+                    // ホバー解除時にそれぞれの初期スタイルに復帰
                     if (boundaryLayers.railway) {
                         boundaryLayers.railway.eachLayer(l => {
-                            const feat = l.feature;
+                            const feat = l.feature || (l.displayTarget ? l.displayTarget._parentFeature : null);
                             const target = l.displayTarget || l;
                             if (feat && target && target.setStyle) {
                                 const orig = getRailwayFeatureStyle(feat);
@@ -1417,7 +1401,6 @@ async function renderRailwayLayer() {
                 }
             });
 
-            // 駅マーカーを路線の上（前面）に配置
             if (feature.geometry?.type === "Point") {
                 setTimeout(() => {
                     if (typeof layer.bringToFront === "function") layer.bringToFront();
