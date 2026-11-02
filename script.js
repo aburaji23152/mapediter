@@ -237,19 +237,53 @@ function getFeaturePrefCode(feature) {
     return "";
 }
 
-// 修正：国土数値情報の鉄道駅データ (N02-25_Station.geojson) を読み込む設定に変更
+// 修正：路線データ(RailroadSection)と駅データ(Station)を両方読み込む処理
 async function fetchRailwayData() {
     if (railwayGeoJsonCache) return railwayGeoJsonCache;
 
     try {
-        console.log("鉄道駅データ (N02-25_Station.geojson) の取得中...");
-        const res = await fetch("./rail_data/N02-25_Station.geojson");
+        console.log("鉄道データ (路線区間・駅) の取得中...");
 
-        if (!res.ok) throw new Error(`HTTPエラー status: ${res.status}`);
+        const fetchFile = async (path) => {
+            try {
+                const res = await fetch(path);
+                if (!res.ok) return null;
+                return await res.json();
+            } catch (e) {
+                return null;
+            }
+        };
 
-        const data = await res.json();
-        railwayGeoJsonCache = data;
-        console.log("鉄道駅データの読み込み完了");
+        const [railroadSection, stationData] = await Promise.all([
+            fetchFile("./rail_data/N02-25_RailroadSection.geojson"),
+            fetchFile("./rail_data/N02-25_Station.geojson")
+        ]);
+
+        let combinedFeatures = [];
+        if (railroadSection && railroadSection.features) {
+            combinedFeatures.push(...railroadSection.features);
+        }
+        if (stationData && stationData.features) {
+            combinedFeatures.push(...stationData.features);
+        }
+
+        // 読み込みフォールバック処理
+        if (combinedFeatures.length === 0) {
+            const fallback = await fetchFile("./rail_data/2026_1031.geojson");
+            if (fallback && fallback.features) {
+                combinedFeatures = fallback.features;
+            }
+        }
+
+        if (combinedFeatures.length === 0) {
+            throw new Error("鉄道データの読み込みに失敗しました。");
+        }
+
+        railwayGeoJsonCache = {
+            type: "FeatureCollection",
+            features: combinedFeatures
+        };
+        console.log("鉄道データの読み込み完了", combinedFeatures.length, "件");
         return railwayGeoJsonCache;
 
     } catch (e) {
@@ -259,7 +293,6 @@ async function fetchRailwayData() {
     }
 }
 
-// 修正：N02-25属性キー（N02_003:路線名）への対応
 function getRailwayFeatureStyle(feature) {
     if (!railwayConfig.show) {
         return { opacity: 0, weight: 0 };
@@ -1189,7 +1222,7 @@ function renderBoundaryLayers() {
     });
 }
 
-// 修正：N02-25_Station属性（N02_005:駅名, N02_003:路線名, N02_004:事業者名）に対応させたレイヤー描画処理
+// 修正：pointToLayerでPoint型の駅データを円形（circleMarker）として路線上に描画
 async function renderRailwayLayer() {
     if (boundaryLayers.railway) {
         map.removeLayer(boundaryLayers.railway);
@@ -1215,23 +1248,35 @@ async function renderRailwayLayer() {
     boundaryLayers.railway = L.geoJSON(boundaryGeoJsons.railway, {
         pane: "railwayPane",
         style: getRailwayFeatureStyle,
+        pointToLayer: (feature, latlng) => {
+            const style = getRailwayFeatureStyle(feature);
+            return L.circleMarker(latlng, {
+                radius: (style.weight || 1.5) + 1.0,
+                fillColor: style.color || "#334155",
+                color: style.color || "#334155",
+                weight: 1,
+                opacity: style.opacity || 0.95,
+                fillOpacity: style.opacity || 0.95
+            });
+        },
         onEachFeature: (feature, layer) => {
             layer.on({
                 mouseover: (e) => {
                     const props = feature.properties || {};
-                    // N02プロパティ（国土数値情報）を最優先で取得
                     const stationName = props.N02_005 || props.station_name || props.station || "";
                     const lineName = props.N02_003 || props.line_name || props.line || props.name || "路線名不明";
                     const companyName = props.N02_004 || props.N02_002 || props.company || "鉄道事業者";
 
                     const currentStyle = getRailwayFeatureStyle(feature);
-                    e.target.setStyle({
-                        weight: (currentStyle.weight || 1.5) + 2.0,
-                        opacity: 1.0
-                    });
+                    if (e.target.setStyle) {
+                        e.target.setStyle({
+                            weight: (currentStyle.weight || 1.5) + 2.0,
+                            opacity: 1.0
+                        });
+                    }
 
                     const mainTitle = stationName ? `${stationName}駅（${lineName}）` : lineName;
-                    showHoverCard(true, companyName, mainTitle, "鉄道駅データ");
+                    showHoverCard(true, companyName, mainTitle, "鉄道データ");
                 },
                 mouseout: (e) => {
                     if (boundaryLayers.railway) {
@@ -1626,7 +1671,6 @@ function generateMapSvgString() {
         return lines.map(line => `M ${project(line[0])} L ${project(line[1])}`).join(" "); 
     }
 
-    // 修正：LineStringだけでなくPoint型駅データにも対応するSVG変換処理
     function railwayToSvgPaths(geojson) {
         if (!geojson || !geojson.features || !railwayConfig.show) return "";
         let pathsHtml = "";
