@@ -32,3 +32,12 @@ input[type="color"]::-webkit-color-swatch {
     border: none;
     border-radius: 9999px;
 }
+
+/* カスタムカラー選択枠用スタイル */
+.custom-swatch input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+.custom-swatch input[type="color"]::-webkit-color-swatch {
+    border: none;
+    border-radius: 9999px;
+}
