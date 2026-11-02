@@ -1319,13 +1319,14 @@ async function renderRailwayLayer() {
         }
     }
 
-    // 駅用マーカーを生成する共通補助関数
+    // 駅用マーカーを生成する共通補助関数（pane: "railwayPane" を指定し最前面に描画）
     function createStationGroup(latlng, feature) {
         const group = L.layerGroup();
         const st = railwayConfig.station;
         
-        // 1. ヒット判定用の透明大円
+        // 1. ヒット判定用の透明大円（railwayPaneに配置）
         const hitCircle = L.circleMarker(latlng, {
+            pane: "railwayPane",
             radius: Math.max((st.radius || 5) + 6, 12),
             color: "rgba(0,0,0,0)",
             fillColor: "rgba(0,0,0,0)",
@@ -1334,8 +1335,9 @@ async function renderRailwayLayer() {
             interactive: true
         });
 
-        // 2. 表示用の設定マーカー
+        // 2. 表示用の設定マーカー（railwayPaneに配置）
         const displayCircle = L.circleMarker(latlng, {
+            pane: "railwayPane",
             radius: st.radius || 5,
             fillColor: st.color || "#1e293b",
             color: st.strokeColor || "#ffffff",
