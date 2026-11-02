@@ -480,14 +480,15 @@
                 <!-- ========================================== -->
                 <!-- タブ 2: 路線図設定 (#tabContentRailway)     -->
                 <!-- ========================================== -->
-                <div id="tabContentRailway" class="p-4 space-y-4 hidden">
+                <div id="tabContentRailway" class="p-4 space-y-4 hidden text-xs font-medium text-slate-700">
                     
                     <div class="flex items-center gap-1.5">
                         <i data-lucide="train" class="w-4 h-4 text-indigo-600"></i>
                         <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider">路線図（鉄道）独立設定</label>
                     </div>
 
-                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-3 text-xs">
+                    <!-- 鉄道レイヤー表示切替 -->
+                    <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
                         <div class="flex items-center justify-between">
                             <label for="chkRailwayBoundary" class="flex items-center gap-1.5 font-bold text-slate-800 cursor-pointer select-none">
                                 <input type="checkbox" id="chkRailwayBoundary" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4">
@@ -499,38 +500,75 @@
                         </p>
                     </div>
 
-                    <!-- スタイルカスタム -->
-                    <div class="p-3 bg-white rounded-xl border border-slate-200 text-xs space-y-3">
-                        <div class="font-bold text-slate-700 border-b border-slate-100 pb-1.5">標準路線スタイル</div>
-
-                        <!-- 線の色 -->
-                        <div class="flex items-center justify-between">
-                            <span class="text-slate-600 font-medium">路線カラー:</span>
-                            <input type="color" id="colorRailwayBoundary" value="#334155" class="w-7 h-7 rounded cursor-pointer border border-slate-300">
+                    <!-- 路線（線路）の設定 -->
+                    <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                        <div class="flex items-center gap-1.5 font-bold text-slate-800 border-b border-slate-200 pb-2">
+                            <i data-lucide="route" class="w-4 h-4 text-indigo-600"></i>
+                            <span>路線の設定</span>
                         </div>
 
-                        <!-- 線の太さ -->
-                        <div class="space-y-1">
-                            <span class="text-slate-600 font-medium">線の太さ:</span>
-                            <select id="weightRailwayBoundary" class="w-full bg-white border border-slate-200 rounded-lg p-2 text-slate-700">
-                                <option value="0.5">0.5px (極細)</option>
-                                <option value="1">1.0px (細め)</option>
-                                <option value="1.5" selected>1.5px (標準)</option>
-                                <option value="2">2.0px (やや太め)</option>
-                                <option value="2.5">2.5px (太め)</option>
-                                <option value="3">3.0px (強調)</option>
-                                <option value="4">4.0px (極太)</option>
-                            </select>
+                        <div class="grid grid-cols-2 gap-3">
+                            <!-- 線の色 -->
+                            <div>
+                                <label class="block text-[11px] text-slate-500 mb-1">路線の色</label>
+                                <div class="flex items-center gap-2">
+                                    <input type="color" id="colorLineBoundary" value="#334155" class="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0 bg-transparent">
+                                </div>
+                            </div>
+
+                            <!-- 線の太さ -->
+                            <div>
+                                <label class="block text-[11px] text-slate-500 mb-1">線の太さ (px)</label>
+                                <input type="number" id="weightLineBoundary" value="2.0" step="0.5" min="0.5" max="10" class="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold focus:ring-indigo-500 focus:border-indigo-500">
+                            </div>
+
+                            <!-- 線種 -->
+                            <div class="col-span-2">
+                                <label class="block text-[11px] text-slate-500 mb-1">線のスタイル</label>
+                                <select id="styleLineBoundary" class="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold focus:ring-indigo-500 focus:border-indigo-500">
+                                    <option value="solid" selected>実線 (Solid)</option>
+                                    <option value="dashed">破線 (Dashed)</option>
+                                    <option value="dotted">点線 (Dotted)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 駅（マーカー）の設定 -->
+                    <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                        <div class="flex items-center gap-1.5 font-bold text-slate-800 border-b border-slate-200 pb-2">
+                            <i data-lucide="map-pin" class="w-4 h-4 text-indigo-600"></i>
+                            <span>駅（円形マーカー）の設定</span>
                         </div>
 
-                        <!-- 線種 -->
-                        <div class="space-y-1">
-                            <span class="text-slate-600 font-medium">線のスタイル:</span>
-                            <select id="styleRailwayBoundary" class="w-full bg-white border border-slate-200 rounded-lg p-2 text-slate-700">
-                                <option value="solid" selected>実線</option>
-                                <option value="dashed">破線</option>
-                                <option value="dotted">点線</option>
-                            </select>
+                        <div class="grid grid-cols-2 gap-3">
+                            <!-- 駅の色 -->
+                            <div>
+                                <label class="block text-[11px] text-slate-500 mb-1">駅の色（塗りつぶし）</label>
+                                <div class="flex items-center gap-2">
+                                    <input type="color" id="colorStationBoundary" value="#1e293b" class="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0 bg-transparent">
+                                </div>
+                            </div>
+
+                            <!-- 駅のサイズ -->
+                            <div>
+                                <label class="block text-[11px] text-slate-500 mb-1">円のサイズ (半径)</label>
+                                <input type="number" id="sizeStationBoundary" value="5" step="1" min="1" max="20" class="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold focus:ring-indigo-500 focus:border-indigo-500">
+                            </div>
+
+                            <!-- 枠線の色 -->
+                            <div>
+                                <label class="block text-[11px] text-slate-500 mb-1">枠線の色</label>
+                                <div class="flex items-center gap-2">
+                                    <input type="color" id="colorStationStroke" value="#ffffff" class="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0 bg-transparent">
+                                </div>
+                            </div>
+
+                            <!-- 枠線の太さ -->
+                            <div>
+                                <label class="block text-[11px] text-slate-500 mb-1">枠線の太さ (px)</label>
+                                <input type="number" id="weightStationStroke" value="2" step="0.5" min="0" max="5" class="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold focus:ring-indigo-500 focus:border-indigo-500">
+                            </div>
                         </div>
                     </div>
 
