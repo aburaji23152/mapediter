@@ -157,7 +157,7 @@ function initTabUI() {
 
 function switchTab(targetTab) {
     activeTab = targetTab;
-    showHoverCard(false); // タブ切替時にホバー表示をリセット
+    showHoverCard(false);
 
     const btnTabPaint = document.getElementById("btnTabPaint");
     const btnTabRailway = document.getElementById("btnTabRailway");
@@ -237,27 +237,29 @@ function getFeaturePrefCode(feature) {
     return "";
 }
 
+// 修正：国土数値情報の鉄道駅データ (N02-25_Station.geojson) を読み込む設定に変更
 async function fetchRailwayData() {
     if (railwayGeoJsonCache) return railwayGeoJsonCache;
 
     try {
-        console.log("鉄道路線データ (2026_1031.geojson) の取得中...");
-        const res = await fetch("./rail_data/2026_1031.geojson");
+        console.log("鉄道駅データ (N02-25_Station.geojson) の取得中...");
+        const res = await fetch("./rail_data/N02-25_Station.geojson");
 
         if (!res.ok) throw new Error(`HTTPエラー status: ${res.status}`);
 
         const data = await res.json();
         railwayGeoJsonCache = data;
-        console.log("鉄道路線データの読み込み完了");
+        console.log("鉄道駅データの読み込み完了");
         return railwayGeoJsonCache;
 
     } catch (e) {
-        console.warn("鉄道路線データ取得エラー:", e);
-        showToast("鉄道路線データの取得に失敗しました", "error");
+        console.warn("鉄道データ取得エラー:", e);
+        showToast("鉄道データの取得に失敗しました", "error");
         return null;
     }
 }
 
+// 修正：N02-25属性キー（N02_003:路線名）への対応
 function getRailwayFeatureStyle(feature) {
     if (!railwayConfig.show) {
         return { opacity: 0, weight: 0 };
@@ -802,7 +804,7 @@ function initMap() {
     map.getPane("boundaryPane").style.pointerEvents = "none";
 
     map.createPane("railwayPane");
-    map.getPane("railwayPane").style.zIndex = 600; // マウスイベントを受け取れるようにpointerEventsは制限しない
+    map.getPane("railwayPane").style.zIndex = 600;
 
     updateTileLayer(selectedTileType);
 }
@@ -1036,7 +1038,6 @@ function renderGeoJson(data, topologyFeatures) {
 
             layer.on({
                 mouseover: (e) => {
-                    // 路線図設定タブ時は市区町村のホバーカードを表示しない
                     if (activeTab === "railway") return;
 
                     const colored = Boolean(colorState[code]);
@@ -1068,7 +1069,6 @@ function renderGeoJson(data, topologyFeatures) {
                 },
                 click: (e) => {
                     L.DomEvent.stopPropagation(e);
-                    // 路線図設定タブ時はペイントを行わない
                     if (activeTab === "railway") return;
 
                     handleCityClick(code);
@@ -1189,6 +1189,7 @@ function renderBoundaryLayers() {
     });
 }
 
+// 修正：N02-25_Station属性（N02_005:駅名, N02_003:路線名, N02_004:事業者名）に対応させたレイヤー描画処理
 async function renderRailwayLayer() {
     if (boundaryLayers.railway) {
         map.removeLayer(boundaryLayers.railway);
@@ -1198,7 +1199,7 @@ async function renderRailwayLayer() {
     if (!railwayConfig.show) return;
 
     if (!boundaryGeoJsons.railway) {
-        showLoading(true, "鉄道路線データを取得中...");
+        showLoading(true, "鉄道データを取得中...");
         const data = await fetchRailwayData();
         showLoading(false);
         if (data) {
@@ -1218,19 +1219,19 @@ async function renderRailwayLayer() {
             layer.on({
                 mouseover: (e) => {
                     const props = feature.properties || {};
-                    const lineName = props.N02_003 || props.line_name || props.line || props.name || "路線名不明";
-                    const companyName = props.N02_004 || props.N02_002 || props.company || "鉄道路線";
+                    // N02プロパティ（国土数値情報）を最優先で取得
                     const stationName = props.N02_005 || props.station_name || props.station || "";
+                    const lineName = props.N02_003 || props.line_name || props.line || props.name || "路線名不明";
+                    const companyName = props.N02_004 || props.N02_002 || props.company || "鉄道事業者";
 
-                    // ホバー時に線を一時的に太く強調
                     const currentStyle = getRailwayFeatureStyle(feature);
                     e.target.setStyle({
                         weight: (currentStyle.weight || 1.5) + 2.0,
                         opacity: 1.0
                     });
 
-                    const mainTitle = stationName ? `${lineName}（${stationName}）` : lineName;
-                    showHoverCard(true, companyName, mainTitle, "鉄道路線");
+                    const mainTitle = stationName ? `${stationName}駅（${lineName}）` : lineName;
+                    showHoverCard(true, companyName, mainTitle, "鉄道駅データ");
                 },
                 mouseout: (e) => {
                     if (boundaryLayers.railway) {
@@ -1270,7 +1271,6 @@ function featureStyle(feature) {
 }
 
 function handleCityClick(code) {
-    // 路線図設定タブ時は塗りつぶし操作を受け付けない
     if (activeTab === "railway") return;
 
     if (activeTool === "paint") colorState[code] = selectedColor;
@@ -1626,6 +1626,7 @@ function generateMapSvgString() {
         return lines.map(line => `M ${project(line[0])} L ${project(line[1])}`).join(" "); 
     }
 
+    // 修正：LineStringだけでなくPoint型駅データにも対応するSVG変換処理
     function railwayToSvgPaths(geojson) {
         if (!geojson || !geojson.features || !railwayConfig.show) return "";
         let pathsHtml = "";
@@ -1639,21 +1640,30 @@ function generateMapSvgString() {
             let dashAttr = "";
             if (style.dashArray) dashAttr = `stroke-dasharray="${style.dashArray}"`;
 
-            let d = "";
-            if (geom.type === "LineString" && Array.isArray(geom.coordinates)) {
-                const pts = geom.coordinates.map(project).filter(p => !p.includes("NaN"));
-                if (pts.length >= 2) d = "M " + pts.join(" L ");
-            } else if (geom.type === "MultiLineString" && Array.isArray(geom.coordinates)) {
-                let segments = [];
-                geom.coordinates.forEach(coords => {
-                    const pts = coords.map(project).filter(p => !p.includes("NaN"));
-                    if (pts.length >= 2) segments.push("M " + pts.join(" L "));
-                });
-                d = segments.join(" ");
-            }
+            if (geom.type === "Point" && Array.isArray(geom.coordinates)) {
+                const ptStr = project(geom.coordinates);
+                if (!ptStr.includes("NaN")) {
+                    const [cx, cy] = ptStr.split(",");
+                    const radius = (style.weight || 1.5) + 1;
+                    pathsHtml += `    <circle cx="${cx}" cy="${cy}" r="${radius}" fill="${style.color}" opacity="${style.opacity}"/>\n`;
+                }
+            } else {
+                let d = "";
+                if (geom.type === "LineString" && Array.isArray(geom.coordinates)) {
+                    const pts = geom.coordinates.map(project).filter(p => !p.includes("NaN"));
+                    if (pts.length >= 2) d = "M " + pts.join(" L ");
+                } else if (geom.type === "MultiLineString" && Array.isArray(geom.coordinates)) {
+                    let segments = [];
+                    geom.coordinates.forEach(coords => {
+                        const pts = coords.map(project).filter(p => !p.includes("NaN"));
+                        if (pts.length >= 2) segments.push("M " + pts.join(" L "));
+                    });
+                    d = segments.join(" ");
+                }
 
-            if (d) {
-                pathsHtml += `    <path d="${d}" fill="none" stroke="${style.color}" stroke-width="${style.weight}" ${dashAttr} stroke-linecap="round" stroke-linejoin="round"/>\n`;
+                if (d) {
+                    pathsHtml += `    <path d="${d}" fill="none" stroke="${style.color}" stroke-width="${style.weight}" ${dashAttr} stroke-linecap="round" stroke-linejoin="round"/>\n`;
+                }
             }
         });
         return pathsHtml;
