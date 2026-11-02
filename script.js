@@ -140,7 +140,7 @@ window.onload = async function() {
 let deferredPrompt = null;
 let isRefreshing = false;
 
-// --- タブ切り替えの確実な初期化と動作制御 ---
+// --- タブ切り替えの制御 ---
 function initTabUI() {
     const btnTabPaint = document.getElementById("btnTabPaint");
     const btnTabRailway = document.getElementById("btnTabRailway");
@@ -157,6 +157,7 @@ function initTabUI() {
 
 function switchTab(targetTab) {
     activeTab = targetTab;
+    showHoverCard(false); // タブ切替時にホバー表示をリセット
 
     const btnTabPaint = document.getElementById("btnTabPaint");
     const btnTabRailway = document.getElementById("btnTabRailway");
@@ -289,7 +290,7 @@ function getRailwayFeatureStyle(feature) {
         opacity: currentStyle.opacity,
         lineCap: "round",
         lineJoin: "round",
-        interactive: false
+        interactive: true
     };
 }
 
@@ -801,8 +802,7 @@ function initMap() {
     map.getPane("boundaryPane").style.pointerEvents = "none";
 
     map.createPane("railwayPane");
-    map.getPane("railwayPane").style.zIndex = 600;
-    map.getPane("railwayPane").style.pointerEvents = "none";
+    map.getPane("railwayPane").style.zIndex = 600; // マウスイベントを受け取れるようにpointerEventsは制限しない
 
     updateTileLayer(selectedTileType);
 }
@@ -1036,6 +1036,9 @@ function renderGeoJson(data, topologyFeatures) {
 
             layer.on({
                 mouseover: (e) => {
+                    // 路線図設定タブ時は市区町村のホバーカードを表示しない
+                    if (activeTab === "railway") return;
+
                     const colored = Boolean(colorState[code]);
                     const opacity = colored ? 1.0 : (enableLandOpacity ? Math.min(1.0, defaultLandOpacity + 0.2) : 1.0);
                     
@@ -1052,6 +1055,8 @@ function renderGeoJson(data, topologyFeatures) {
                     showHoverCard(true, prefName, mapMode === "pref" ? prefName : name, code);
                 },
                 mouseout: (e) => {
+                    if (activeTab === "railway") return;
+
                     if (mapMode === "pref") {
                         geojsonLayer.eachLayer(l => {
                             if (getFeaturePrefCode(l.feature) === prefCode) geojsonLayer.resetStyle(l);
@@ -1063,6 +1068,9 @@ function renderGeoJson(data, topologyFeatures) {
                 },
                 click: (e) => {
                     L.DomEvent.stopPropagation(e);
+                    // 路線図設定タブ時はペイントを行わない
+                    if (activeTab === "railway") return;
+
                     handleCityClick(code);
                 }
             });
@@ -1205,7 +1213,33 @@ async function renderRailwayLayer() {
 
     boundaryLayers.railway = L.geoJSON(boundaryGeoJsons.railway, {
         pane: "railwayPane",
-        style: getRailwayFeatureStyle
+        style: getRailwayFeatureStyle,
+        onEachFeature: (feature, layer) => {
+            layer.on({
+                mouseover: (e) => {
+                    const props = feature.properties || {};
+                    const lineName = props.N02_003 || props.line_name || props.line || props.name || "路線名不明";
+                    const companyName = props.N02_004 || props.N02_002 || props.company || "鉄道路線";
+                    const stationName = props.N02_005 || props.station_name || props.station || "";
+
+                    // ホバー時に線を一時的に太く強調
+                    const currentStyle = getRailwayFeatureStyle(feature);
+                    e.target.setStyle({
+                        weight: (currentStyle.weight || 1.5) + 2.0,
+                        opacity: 1.0
+                    });
+
+                    const mainTitle = stationName ? `${lineName}（${stationName}）` : lineName;
+                    showHoverCard(true, companyName, mainTitle, "鉄道路線");
+                },
+                mouseout: (e) => {
+                    if (boundaryLayers.railway) {
+                        boundaryLayers.railway.resetStyle(e.target);
+                    }
+                    showHoverCard(false);
+                }
+            });
+        }
     }).addTo(map);
 }
 
@@ -1236,6 +1270,9 @@ function featureStyle(feature) {
 }
 
 function handleCityClick(code) {
+    // 路線図設定タブ時は塗りつぶし操作を受け付けない
+    if (activeTab === "railway") return;
+
     if (activeTool === "paint") colorState[code] = selectedColor;
     else delete colorState[code];
 
