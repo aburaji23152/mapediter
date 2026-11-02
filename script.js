@@ -82,7 +82,7 @@ let boundarySettings = {
     ward: { show: true, color: "#64748b", weight: 1.0, style: "dashed" }
 };
 
-// 路線と駅の設定
+// 路線と駅の設定（駅表示切替 show を追加）
 let railwayConfig = {
     show: false,
     line: {
@@ -92,6 +92,7 @@ let railwayConfig = {
         opacity: 0.95
     },
     station: {
+        show: true,
         color: "#1e293b",
         radius: 5,
         strokeColor: "#ffffff",
@@ -324,6 +325,7 @@ function getRailwayFeatureStyle(feature) {
 
     if (isStation) {
         const st = railwayConfig.station || {};
+        if (st.show === false) return { opacity: 0, fillOpacity: 0, weight: 0, radius: 0 };
         return {
             fillColor: st.color || "#1e293b",
             color: st.strokeColor || "#ffffff",
@@ -516,6 +518,8 @@ function initBoundaryUIValues() {
     if (styleLine) styleLine.value = railwayConfig.line.style;
 
     // 駅設定 UI
+    const chkStationShow = document.getElementById("chkStationShow");
+    if (chkStationShow) chkStationShow.checked = railwayConfig.station.show !== false;
     const colorStation = document.getElementById("colorStationBoundary");
     if (colorStation) colorStation.value = railwayConfig.station.color;
     const sizeStation = document.getElementById("sizeStationBoundary");
@@ -1059,6 +1063,7 @@ function bindEvents() {
     const weightLine = document.getElementById("weightLineBoundary") || document.getElementById("weightRailwayBoundary");
     const styleLine = document.getElementById("styleLineBoundary") || document.getElementById("styleRailwayBoundary");
     
+    const chkStationShow = document.getElementById("chkStationShow");
     const colorStation = document.getElementById("colorStationBoundary");
     const sizeStation = document.getElementById("sizeStationBoundary");
     const colorStationStroke = document.getElementById("colorStationStroke");
@@ -1076,6 +1081,7 @@ function bindEvents() {
         if (styleLine) railwayConfig.line.style = styleLine.value;
 
         // 駅設定更新
+        if (chkStationShow) railwayConfig.station.show = chkStationShow.checked;
         if (colorStation) railwayConfig.station.color = colorStation.value;
         if (sizeStation) {
             const val = parseFloat(sizeStation.value);
@@ -1101,6 +1107,7 @@ function bindEvents() {
     bindRailwayEvent(weightLine, ["input", "change"]);
     bindRailwayEvent(styleLine, ["change"]);
 
+    bindRailwayEvent(chkStationShow, ["change"]);
     bindRailwayEvent(colorStation, ["input", "change"]);
     bindRailwayEvent(sizeStation, ["input", "change"]);
     bindRailwayEvent(colorStationStroke, ["input", "change"]);
@@ -1296,7 +1303,7 @@ function renderBoundaryLayers() {
     });
 }
 
-// 路線と駅を独立スタイルで描画（駅がLineStringの場合も点に変換して描画）
+// 路線と駅を独立スタイルで描画（駅表示 ON/OFF 対応）
 async function renderRailwayLayer() {
     if (boundaryLayers.railway) {
         map.removeLayer(boundaryLayers.railway);
@@ -1319,10 +1326,13 @@ async function renderRailwayLayer() {
         }
     }
 
-    // 駅用マーカーを生成する共通補助関数（pane: "railwayPane" を指定し最前面に描画）
+    // 駅用マーカーを生成する共通補助関数
     function createStationGroup(latlng, feature) {
         const group = L.layerGroup();
         const st = railwayConfig.station;
+
+        // 駅表示がOFFの場合は円マーカーを作成しない（ホバー当たり判定のみまたは空）
+        if (st.show === false) return group;
         
         // 1. ヒット判定用の透明大円（railwayPaneに配置）
         const hitCircle = L.circleMarker(latlng, {
@@ -1403,15 +1413,17 @@ async function renderRailwayLayer() {
                                 
                                 if (target && target.setStyle) {
                                     if (isPt) {
-                                        if (typeof target.setRadius === "function") {
-                                            target.setRadius((railwayConfig.station.radius || 5) + 3);
+                                        if (railwayConfig.station.show !== false) {
+                                            if (typeof target.setRadius === "function") {
+                                                target.setRadius((railwayConfig.station.radius || 5) + 3);
+                                            }
+                                            target.setStyle({
+                                                fillColor: "#ef4444",
+                                                color: "#ffffff",
+                                                weight: (railwayConfig.station.strokeWeight || 2) + 1,
+                                                fillOpacity: 1.0
+                                            });
                                         }
-                                        target.setStyle({
-                                            fillColor: "#ef4444",
-                                            color: "#ffffff",
-                                            weight: (railwayConfig.station.strokeWeight || 2) + 1,
-                                            fillOpacity: 1.0
-                                        });
                                     } else {
                                         target.setStyle({
                                             color: "#ef4444",
@@ -1450,8 +1462,8 @@ async function renderRailwayLayer() {
         }
     }).addTo(map);
 
-    // LineString で記述された駅データを中心座標の点マーカーとして独立追加
-    if (boundaryGeoJsons.railway && boundaryGeoJsons.railway.features) {
+    // LineString で記述された駅データを中心座標の点マーカーとして独立追加（station.show が true の場合のみ）
+    if (railwayConfig.station.show !== false && boundaryGeoJsons.railway && boundaryGeoJsons.railway.features) {
         boundaryGeoJsons.railway.features.forEach(f => {
             const isStation = Boolean(f.properties?.N02_005 || f.properties?.station_name || f.properties?.station);
             const isLineGeom = f.geometry?.type === "LineString" || f.geometry?.type === "MultiLineString";
@@ -1871,6 +1883,7 @@ function generateMapSvgString() {
             if (style.dashArray) dashAttr = `stroke-dasharray="${style.dashArray}"`;
 
             if (isStation) {
+                if (railwayConfig.station.show === false) return;
                 let coords = geom.type === "Point" ? geom.coordinates : getCenterLatLng(geom.coordinates);
                 if (coords[0] !== 0 && coords[1] !== 0) {
                     const latlngCoord = geom.type === "Point" ? coords : [coords[1], coords[0]];
