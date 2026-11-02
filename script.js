@@ -237,7 +237,6 @@ function getFeaturePrefCode(feature) {
     return "";
 }
 
-// 修正：路線データ(RailroadSection)と駅データ(Station)を両方読み込む処理
 async function fetchRailwayData() {
     if (railwayGeoJsonCache) return railwayGeoJsonCache;
 
@@ -267,7 +266,6 @@ async function fetchRailwayData() {
             combinedFeatures.push(...stationData.features);
         }
 
-        // 読み込みフォールバック処理
         if (combinedFeatures.length === 0) {
             const fallback = await fetchFile("./rail_data/2026_1031.geojson");
             if (fallback && fallback.features) {
@@ -1222,7 +1220,7 @@ function renderBoundaryLayers() {
     });
 }
 
-// 修正：pointToLayerでPoint型の駅データを円形（circleMarker）として路線上に描画
+// 修正：駅を円（circleMarker）で表示 ＆ ホバー時に同じ「路線名（N02_003）」を持つ路線全体を連動表示
 async function renderRailwayLayer() {
     if (boundaryLayers.railway) {
         map.removeLayer(boundaryLayers.railway);
@@ -1248,14 +1246,15 @@ async function renderRailwayLayer() {
     boundaryLayers.railway = L.geoJSON(boundaryGeoJsons.railway, {
         pane: "railwayPane",
         style: getRailwayFeatureStyle,
+        // 駅データ（Point）を円形（丸）マーカーとして描画
         pointToLayer: (feature, latlng) => {
             const style = getRailwayFeatureStyle(feature);
             return L.circleMarker(latlng, {
-                radius: (style.weight || 1.5) + 1.0,
+                radius: (style.weight || 1.5) + 2.0,
                 fillColor: style.color || "#334155",
-                color: style.color || "#334155",
+                color: "#ffffff",
                 weight: 1,
-                opacity: style.opacity || 0.95,
+                opacity: 1.0,
                 fillOpacity: style.opacity || 0.95
             });
         },
@@ -1264,23 +1263,40 @@ async function renderRailwayLayer() {
                 mouseover: (e) => {
                     const props = feature.properties || {};
                     const stationName = props.N02_005 || props.station_name || props.station || "";
-                    const lineName = props.N02_003 || props.line_name || props.line || props.name || "路線名不明";
+                    const lineName = props.N02_003 || props.line_name || props.line || props.name || "";
                     const companyName = props.N02_004 || props.N02_002 || props.company || "鉄道事業者";
 
-                    const currentStyle = getRailwayFeatureStyle(feature);
-                    if (e.target.setStyle) {
-                        e.target.setStyle({
-                            weight: (currentStyle.weight || 1.5) + 2.0,
-                            opacity: 1.0
+                    // マウスホバー時、同一路線名（lineName）を持つ全セグメント・全駅を一括でハイライト
+                    if (boundaryLayers.railway && lineName) {
+                        boundaryLayers.railway.eachLayer(l => {
+                            const lProps = l.feature?.properties || {};
+                            const lLineName = lProps.N02_003 || lProps.line_name || lProps.line || lProps.name;
+                            
+                            if (lLineName === lineName) {
+                                const origStyle = getRailwayFeatureStyle(l.feature);
+                                if (l.setStyle) {
+                                    l.setStyle({
+                                        color: "#ef4444", // 強調カラー（赤色）
+                                        fillColor: "#ef4444",
+                                        weight: (origStyle.weight || 1.5) + 2.5,
+                                        opacity: 1.0,
+                                        fillOpacity: 1.0
+                                    });
+                                    if (typeof l.bringToFront === "function") {
+                                        l.bringToFront();
+                                    }
+                                }
+                            }
                         });
                     }
 
-                    const mainTitle = stationName ? `${stationName}駅（${lineName}）` : lineName;
+                    const mainTitle = stationName ? `${stationName}駅（${lineName}）` : (lineName || "路線名不明");
                     showHoverCard(true, companyName, mainTitle, "鉄道データ");
                 },
                 mouseout: (e) => {
+                    // ホバー解除時に全鉄道レイヤーのスタイルを初期状態に一括復帰
                     if (boundaryLayers.railway) {
-                        boundaryLayers.railway.resetStyle(e.target);
+                        boundaryLayers.railway.resetStyle();
                     }
                     showHoverCard(false);
                 }
@@ -1688,8 +1704,8 @@ function generateMapSvgString() {
                 const ptStr = project(geom.coordinates);
                 if (!ptStr.includes("NaN")) {
                     const [cx, cy] = ptStr.split(",");
-                    const radius = (style.weight || 1.5) + 1;
-                    pathsHtml += `    <circle cx="${cx}" cy="${cy}" r="${radius}" fill="${style.color}" opacity="${style.opacity}"/>\n`;
+                    const radius = (style.weight || 1.5) + 2.0;
+                    pathsHtml += `    <circle cx="${cx}" cy="${cy}" r="${radius}" fill="${style.color}" stroke="#ffffff" stroke-width="1" opacity="${style.opacity}"/>\n`;
                 }
             } else {
                 let d = "";
