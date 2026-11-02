@@ -82,7 +82,7 @@ let boundarySettings = {
     ward: { show: true, color: "#64748b", weight: 1.0, style: "dashed" }
 };
 
-// 路線と駅の設定（駅表示切替 show を追加）
+// 路線と駅の設定
 let railwayConfig = {
     show: false,
     line: {
@@ -163,6 +163,11 @@ function initTabUI() {
 function switchTab(targetTab) {
     activeTab = targetTab;
     showHoverCard(false);
+
+    // タブに応じて鉄道レイヤーのクリック判定を通過/有効化
+    if (map && map.getPane("railwayPane")) {
+        map.getPane("railwayPane").style.pointerEvents = targetTab === "paint" ? "none" : "auto";
+    }
 
     const btnTabPaint = document.getElementById("btnTabPaint");
     const btnTabRailway = document.getElementById("btnTabRailway");
@@ -883,6 +888,8 @@ function initMap() {
 
     map.createPane("railwayPane");
     map.getPane("railwayPane").style.zIndex = 600;
+    // 地域ペイントタブがデフォルトのため初期状態は判定を無効化
+    map.getPane("railwayPane").style.pointerEvents = "none";
 
     updateTileLayer(selectedTileType);
 }
@@ -1057,7 +1064,7 @@ function bindEvents() {
         document.getElementById(item.style)?.addEventListener("change", updateSetting);
     });
 
-    // 鉄道・路線・駅の個別バインド処理（input/change両方を監視）
+    // 鉄道・路線・駅の個別バインド処理
     const chkRail = document.getElementById("chkRailwayBoundary");
     const colorLine = document.getElementById("colorLineBoundary") || document.getElementById("colorRailwayBoundary");
     const weightLine = document.getElementById("weightLineBoundary") || document.getElementById("weightRailwayBoundary");
@@ -1303,7 +1310,7 @@ function renderBoundaryLayers() {
     });
 }
 
-// 路線と駅を独立スタイルで描画（駅表示 ON/OFF 対応）
+// 路線と駅を独立スタイルで描画
 async function renderRailwayLayer() {
     if (boundaryLayers.railway) {
         map.removeLayer(boundaryLayers.railway);
@@ -1331,10 +1338,9 @@ async function renderRailwayLayer() {
         const group = L.layerGroup();
         const st = railwayConfig.station;
 
-        // 駅表示がOFFの場合は円マーカーを作成しない（ホバー当たり判定のみまたは空）
         if (st.show === false) return group;
         
-        // 1. ヒット判定用の透明大円（railwayPaneに配置）
+        // 1. ヒット判定用の透明大円
         const hitCircle = L.circleMarker(latlng, {
             pane: "railwayPane",
             radius: Math.max((st.radius || 5) + 6, 12),
@@ -1345,7 +1351,7 @@ async function renderRailwayLayer() {
             interactive: true
         });
 
-        // 2. 表示用の設定マーカー（railwayPaneに配置）
+        // 2. 表示用の設定マーカー
         const displayCircle = L.circleMarker(latlng, {
             pane: "railwayPane",
             radius: st.radius || 5,
@@ -1369,7 +1375,6 @@ async function renderRailwayLayer() {
         pane: "railwayPane",
         style: (feature) => getRailwayFeatureStyle(feature),
         filter: (feature) => {
-            // LineString の駅要素は pointToLayer で生成するため元の描画からは除外
             const isStation = Boolean(feature.properties?.N02_005 || feature.properties?.station_name || feature.properties?.station);
             const isLineGeom = feature.geometry?.type === "LineString" || feature.geometry?.type === "MultiLineString";
             if (isStation && isLineGeom) return false;
@@ -1462,7 +1467,6 @@ async function renderRailwayLayer() {
         }
     }).addTo(map);
 
-    // LineString で記述された駅データを中心座標の点マーカーとして独立追加（station.show が true の場合のみ）
     if (railwayConfig.station.show !== false && boundaryGeoJsons.railway && boundaryGeoJsons.railway.features) {
         boundaryGeoJsons.railway.features.forEach(f => {
             const isStation = Boolean(f.properties?.N02_005 || f.properties?.station_name || f.properties?.station);
