@@ -1344,7 +1344,7 @@ async function renderRailwayLayer() {
         // 判定用の透明領域
         const hitCircle = L.circleMarker(latlng, {
             pane: "railwayPane",
-            radius: Math.max((st.radius || 5) + 8, 14),
+            radius: Math.max((st.radius || 5) + 10, 16),
             color: "rgba(0,0,0,0)",
             fillColor: "rgba(0,0,0,0)",
             weight: 0,
@@ -1395,12 +1395,12 @@ async function renderRailwayLayer() {
             const group = L.layerGroup();
             const baseStyle = getRailwayFeatureStyle(feature);
 
-            // 判定用の透明太線
+            // 判定用の透明太線（ホバー判定領域を40px幅に拡大）
             const hitLine = L.geoJSON(feature, {
                 pane: "railwayPane",
                 style: {
                     color: "#000000",
-                    weight: Math.max((railwayConfig.line.weight || 2.0) + 16, 20),
+                    weight: Math.max((railwayConfig.line.weight || 2.0) + 30, 40),
                     opacity: 0.001,
                     lineCap: "round",
                     lineJoin: "round",
