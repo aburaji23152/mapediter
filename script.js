@@ -1416,12 +1416,12 @@ async function renderRailwayLayer() {
 
             const isSelected = lineKey && selectedRailwayLines.has(lineKey);
 
-            // 判定用の透明太線（40px幅）
+            // 判定用の透明太線（30px幅）
             const hitLine = L.geoJSON(feature, {
                 pane: "railwayPane",
                 style: {
                     color: "#000000",
-                    weight: Math.max((railwayConfig.line.weight || 2.0) + 30, 40),
+                    weight: Math.max((railwayConfig.line.weight || 2.0) + 20, 30),
                     opacity: 0.001,
                     lineCap: "round",
                     lineJoin: "round",
