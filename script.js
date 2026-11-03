@@ -1300,7 +1300,7 @@ function renderBoundaryLayers() {
     });
 }
 
-// 路線と駅の描画（親L.layerGroup構造で太い透明判定要素を確実に保持・配置）
+// 路線と駅の描画（実際のヒット用エレメントに直接イベントをバインド）
 async function renderRailwayLayer() {
     if (boundaryLayers.railway) {
         map.removeLayer(boundaryLayers.railway);
@@ -1331,6 +1331,7 @@ async function renderRailwayLayer() {
 
         if (st.show === false) return group;
         
+        // 判定用の透明領域
         const hitCircle = L.circleMarker(latlng, {
             pane: "railwayPane",
             radius: Math.max((st.radius || 5) + 8, 14),
@@ -1341,6 +1342,7 @@ async function renderRailwayLayer() {
             interactive: true
         });
 
+        // 表示用デザイン要素
         const displayCircle = L.circleMarker(latlng, {
             pane: "railwayPane",
             radius: st.radius || 5,
@@ -1356,6 +1358,9 @@ async function renderRailwayLayer() {
         group.addLayer(displayCircle);
         group.displayTarget = displayCircle;
         group.feature = feature;
+
+        // 透明なヒットサークルに直接イベントをアタッチ
+        bindTargetEvents(hitCircle, feature);
 
         return group;
     }
@@ -1375,12 +1380,12 @@ async function renderRailwayLayer() {
         if (isStation && geom.type === "Point") {
             const latlng = L.latLng(geom.coordinates[1], geom.coordinates[0]);
             const stGroup = createStationGroup(latlng, feature);
-            bindRailwayEvents(stGroup, feature);
             boundaryLayers.railway.addLayer(stGroup);
         } else if (!isStation && isLineGeom) {
             const group = L.layerGroup();
             const baseStyle = getRailwayFeatureStyle(feature);
 
+            // 判定用の透明太線（カーソル判定用）
             const hitLine = L.geoJSON(feature, {
                 pane: "railwayPane",
                 style: {
@@ -1393,6 +1398,7 @@ async function renderRailwayLayer() {
                 }
             });
 
+            // 表示用デザイン線
             const displayLine = L.geoJSON(feature, {
                 pane: "railwayPane",
                 style: {
@@ -1406,7 +1412,11 @@ async function renderRailwayLayer() {
             group.displayTarget = displayLine;
             group.feature = feature;
 
-            bindRailwayEvents(group, feature);
+            // ヒット線に対して直接イベントを登録
+            hitLine.eachLayer(layer => {
+                bindTargetEvents(layer, feature);
+            });
+
             boundaryLayers.railway.addLayer(group);
         }
     });
@@ -1420,7 +1430,6 @@ async function renderRailwayLayer() {
                 const center = getCenterLatLng(f.geometry.coordinates);
                 if (center[0] !== 0 && center[1] !== 0) {
                     const stGroup = createStationGroup(L.latLng(center[0], center[1]), f);
-                    bindRailwayEvents(stGroup, f);
                     boundaryLayers.railway.addLayer(stGroup);
                 }
             }
@@ -1430,13 +1439,14 @@ async function renderRailwayLayer() {
     boundaryLayers.railway.addTo(map);
 }
 
-function bindRailwayEvents(layerGroup, feature) {
+// レイヤー（線の要素）に対してホバーイベントを確実にアタッチする処理
+function bindTargetEvents(targetLayer, feature) {
     const props = feature.properties || {};
     const stationName = props.N02_005 || props.station_name || props.station || "";
     const lineName = props.N02_003 || props.line_name || props.line || props.name || "";
     const companyName = props.N02_004 || props.N02_002 || props.company || "鉄道事業者";
 
-    layerGroup.on({
+    targetLayer.on({
         mouseover: (e) => {
             if (boundaryLayers.railway && lineName) {
                 boundaryLayers.railway.eachLayer(group => {
