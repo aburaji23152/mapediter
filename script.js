@@ -66,7 +66,7 @@ let colorState = {};
 let currentCityMap = {};
 let nationalFeaturesCache = null;
 let railwayGeoJsonCache = null;
-let selectedRailwayLines = new Set(); // クリック固定（トグル選択）された路線名を保持
+let selectedRailwayLines = new Set(); // クリック固定（トグル選択）された事業者名+路線名キーを保持
 
 let defaultLandColor = "#ffffff";
 let enableLandOpacity = false;
@@ -255,6 +255,18 @@ function getFeaturePrefCode(feature) {
 function getLineName(props) {
     if (!props) return "";
     return props.N02_003 || props.line_name || props.line || props.name || props.title || "";
+}
+
+function getLineCompany(props) {
+    if (!props) return "";
+    return props.N02_004 || props.N02_002 || props.company || "";
+}
+
+function getLineKey(props) {
+    const line = getLineName(props);
+    const company = getLineCompany(props);
+    if (!line) return "";
+    return company ? `${company}::${line}` : line;
 }
 
 function getStationName(props) {
@@ -1397,9 +1409,9 @@ async function renderRailwayLayer() {
         if (!isStation && isLineGeom) {
             const group = L.layerGroup();
             const baseStyle = getRailwayFeatureStyle(feature);
-            const lineName = getLineName(props);
+            const lineKey = getLineKey(props);
 
-            const isSelected = lineName && selectedRailwayLines.has(lineName);
+            const isSelected = lineKey && selectedRailwayLines.has(lineKey);
 
             // 判定用の透明太線（40px幅）
             const hitLine = L.geoJSON(feature, {
@@ -1476,20 +1488,20 @@ async function renderRailwayLayer() {
 }
 
 // 路線全体のスタイル（ハイライト／通常）を更新するヘルパー関数
-function updateLineHighlight(targetLineName, isHover) {
-    if (!boundaryLayers.railway || !targetLineName) return;
+function updateLineHighlight(targetLineKey, isHover) {
+    if (!boundaryLayers.railway || !targetLineKey) return;
 
-    const isSelected = selectedRailwayLines.has(targetLineName);
+    const isSelected = selectedRailwayLines.has(targetLineKey);
 
     boundaryLayers.railway.eachLayer(layerOrGroup => {
         const processGroup = (group) => {
             const feat = group.feature;
             if (!feat) return;
             const lProps = feat.properties || {};
-            const lLineName = getLineName(lProps);
+            const lLineKey = getLineKey(lProps);
             const isPt = feat.geometry?.type === "Point" || Boolean(getStationName(lProps));
 
-            if (lLineName && lLineName === targetLineName && !isPt) {
+            if (lLineKey && lLineKey === targetLineKey && !isPt) {
                 const target = group.displayTarget;
                 if (target && target.setStyle) {
                     if (isSelected || isHover) {
@@ -1520,7 +1532,8 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
     const props = feature.properties || {};
     const stationName = getStationName(props);
     const lineName = getLineName(props);
-    const companyName = props.N02_004 || props.N02_002 || props.company || "鉄道事業者";
+    const lineKey = getLineKey(props);
+    const companyName = getLineCompany(props) || "鉄道事業者";
 
     // 描画対象が円マーカー（L.CircleMarker）であれば駅要素として判定
     const isStationFeature = displayTarget && (displayTarget instanceof L.CircleMarker || displayTarget.options?.radius !== undefined);
@@ -1538,8 +1551,8 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
                     });
                 }
             } else {
-                // 【路線にホバーした場合】➔ 同一路線名を持つ全区間をハイライト
-                updateLineHighlight(lineName, true);
+                // 【路線にホバーした場合】➔ 同一事業者・路線名を持つ全区間をハイライト
+                updateLineHighlight(lineKey, true);
             }
 
             const mainTitle = stationName ? `${stationName}駅（${lineName}）` : (lineName || "路線名不明");
@@ -1554,20 +1567,20 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
                 }
             } else {
                 // 【路線からの離脱】➔ 選択状態でなければ元のスタイルに復元
-                updateLineHighlight(lineName, false);
+                updateLineHighlight(lineKey, false);
             }
             showHoverCard(false);
         },
         click: (e) => {
             L.DomEvent.stopPropagation(e);
-            if (!isStationFeature && lineName) {
-                // 【路線クリック】➔ 選択状態（赤色固定）をトグル切替
-                if (selectedRailwayLines.has(lineName)) {
-                    selectedRailwayLines.delete(lineName);
+            if (!isStationFeature && lineKey) {
+                // 【路線クリック】➔ 会社+路線単位で選択状態（赤色固定）をトグル切替
+                if (selectedRailwayLines.has(lineKey)) {
+                    selectedRailwayLines.delete(lineKey);
                 } else {
-                    selectedRailwayLines.add(lineName);
+                    selectedRailwayLines.add(lineKey);
                 }
-                updateLineHighlight(lineName, true);
+                updateLineHighlight(lineKey, true);
             }
         }
     });
