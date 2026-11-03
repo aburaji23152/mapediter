@@ -1300,7 +1300,7 @@ function renderBoundaryLayers() {
     });
 }
 
-// 路線と駅の描画（実際のヒット用エレメントに直接イベントをバインド）
+// 路線と駅の描画（駅のみを赤色で強調）
 async function renderRailwayLayer() {
     if (boundaryLayers.railway) {
         map.removeLayer(boundaryLayers.railway);
@@ -1439,7 +1439,7 @@ async function renderRailwayLayer() {
     boundaryLayers.railway.addTo(map);
 }
 
-// レイヤー（線の要素）に対してホバーイベントを確実にアタッチする処理
+// ホバー時に「駅」のみを赤色（#ef4444）にするイベントハンドラ
 function bindTargetEvents(targetLayer, feature) {
     const props = feature.properties || {};
     const stationName = props.N02_005 || props.station_name || props.station || "";
@@ -1459,21 +1459,14 @@ function bindTargetEvents(targetLayer, feature) {
                         const target = group.displayTarget;
                         const isPt = feat.geometry?.type === "Point" || Boolean(lProps.N02_005 || lProps.station_name);
                         
-                        if (target && target.setStyle) {
-                            if (isPt) {
-                                if (railwayConfig.station.show !== false) {
-                                    target.setStyle({
-                                        fillColor: "#ef4444",
-                                        color: "#ffffff",
-                                        weight: (railwayConfig.station.strokeWeight || 2) + 1,
-                                        fillOpacity: 1.0
-                                    });
-                                }
-                            } else {
+                        // 駅（isPt）のみ赤色に強調。路線は色の変更をしない
+                        if (target && target.setStyle && isPt) {
+                            if (railwayConfig.station.show !== false) {
                                 target.setStyle({
-                                    color: "#ef4444",
-                                    weight: (railwayConfig.line.weight || 2.0) + 3.0,
-                                    opacity: 1.0
+                                    fillColor: "#ef4444",
+                                    color: "#ffffff",
+                                    weight: (railwayConfig.station.strokeWeight || 2) + 1,
+                                    fillOpacity: 1.0
                                 });
                             }
                         }
