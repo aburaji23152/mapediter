@@ -164,7 +164,7 @@ function switchTab(targetTab) {
     activeTab = targetTab;
     showHoverCard(false);
 
-    // タブに応じて鉄道レイヤーのクリック判定を通過/有効化
+    // タブに応じて鉄道レイヤーのマウス判定を切り替え（ペイント時は通過、鉄道設定時は判定有効）
     if (map && map.getPane("railwayPane")) {
         map.getPane("railwayPane").style.pointerEvents = targetTab === "paint" ? "none" : "auto";
     }
@@ -888,7 +888,7 @@ function initMap() {
 
     map.createPane("railwayPane");
     map.getPane("railwayPane").style.zIndex = 600;
-    // 地域ペイントタブがデフォルトのため初期状態は判定を無効化
+    // 初期表示はペイントタブのため、鉄道判定は通過させる
     map.getPane("railwayPane").style.pointerEvents = "none";
 
     updateTileLayer(selectedTileType);
@@ -1310,7 +1310,7 @@ function renderBoundaryLayers() {
     });
 }
 
-// 路線と駅を独立スタイルで描画
+// 路線と駅を独立スタイルで描画（透明な太い判定領域レイヤーを追加してホバー領域を拡大）
 async function renderRailwayLayer() {
     if (boundaryLayers.railway) {
         map.removeLayer(boundaryLayers.railway);
@@ -1333,17 +1333,17 @@ async function renderRailwayLayer() {
         }
     }
 
-    // 駅用マーカーを生成する共通補助関数
+    // 駅用マーカー生成（判定半径を広めに拡大）
     function createStationGroup(latlng, feature) {
         const group = L.layerGroup();
         const st = railwayConfig.station;
 
         if (st.show === false) return group;
         
-        // 1. ヒット判定用の透明大円
+        // 1. ヒット判定用の透明大円（半径を広げて反応しやすく）
         const hitCircle = L.circleMarker(latlng, {
             pane: "railwayPane",
-            radius: Math.max((st.radius || 5) + 6, 12),
+            radius: Math.max((st.radius || 5) + 10, 15),
             color: "rgba(0,0,0,0)",
             fillColor: "rgba(0,0,0,0)",
             weight: 0,
@@ -1371,6 +1371,41 @@ async function renderRailwayLayer() {
         return group;
     }
 
+    // 路線用LayerGroup生成（見た目は細く保ち、透明なHit幅を24px以上に拡大）
+    function createLineGroup(feature) {
+        const group = L.layerGroup();
+        const baseStyle = getRailwayFeatureStyle(feature);
+
+        // 1. ヒット判定用の透明極太線（幅24px）
+        const hitLine = L.geoJSON(feature, {
+            pane: "railwayPane",
+            style: {
+                color: "#000000",
+                weight: Math.max((railwayConfig.line.weight || 2.0) + 20, 24),
+                opacity: 0.001,
+                lineCap: "round",
+                lineJoin: "round",
+                interactive: true
+            }
+        });
+
+        // 2. 表示用のデザイン線
+        const displayLine = L.geoJSON(feature, {
+            pane: "railwayPane",
+            style: {
+                ...baseStyle,
+                interactive: false
+            }
+        });
+
+        group.addLayer(hitLine);
+        group.addLayer(displayLine);
+        group.displayTarget = displayLine;
+        group.feature = feature;
+
+        return group;
+    }
+
     boundaryLayers.railway = L.geoJSON(boundaryGeoJsons.railway, {
         pane: "railwayPane",
         style: (feature) => getRailwayFeatureStyle(feature),
@@ -1386,22 +1421,19 @@ async function renderRailwayLayer() {
         onEachFeature: (feature, layer) => {
             const isLine = feature.geometry?.type === "LineString" || feature.geometry?.type === "MultiLineString";
             
-            if (isLine && typeof layer.setStyle === "function") {
-                const st = getRailwayFeatureStyle(feature);
-                layer.setStyle({
-                    weight: Math.max(st.weight + 12, 16),
-                    color: st.color,
-                    opacity: st.opacity
-                });
+            // 路線の場合、レイヤーグループを統合・構築してヒット判定を拡張
+            if (isLine) {
+                const lineGroup = createLineGroup(feature);
+                // レイヤーを置き換え
+                layer = lineGroup;
             }
 
-            if (layer.displayTarget) {
-                layer.displayTarget._parentFeature = feature;
-            }
+            const targetFeature = feature;
+            const eventTarget = layer;
 
-            layer.on({
+            eventTarget.on({
                 mouseover: (e) => {
-                    const props = feature.properties || {};
+                    const props = targetFeature.properties || {};
                     const stationName = props.N02_005 || props.station_name || props.station || "";
                     const lineName = props.N02_003 || props.line_name || props.line || props.name || "";
                     const companyName = props.N02_004 || props.N02_002 || props.company || "鉄道事業者";
