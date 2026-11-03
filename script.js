@@ -165,8 +165,13 @@ function switchTab(targetTab) {
     activeTab = targetTab;
     showHoverCard(false);
 
-    if (map && map.getPane("railwayPane")) {
-        map.getPane("railwayPane").style.pointerEvents = targetTab === "paint" ? "none" : "auto";
+    if (map) {
+        if (map.getPane("railwayPane")) {
+            map.getPane("railwayPane").style.pointerEvents = targetTab === "paint" ? "none" : "auto";
+        }
+        if (map.getPane("landPane")) {
+            map.getPane("landPane").style.pointerEvents = targetTab === "railway" ? "none" : "auto";
+        }
     }
 
     const btnTabPaint = document.getElementById("btnTabPaint");
@@ -186,7 +191,7 @@ function switchTab(targetTab) {
     } else {
         if (btnTabPaint) btnTabPaint.className = inactiveClass;
         if (btnTabRailway) btnTabRailway.className = activeClass;
-        if (contentPaint) contentPaint.add ? contentPaint.classList.add("hidden") : null;
+        if (contentPaint) contentPaint.classList.add("hidden");
         if (contentRailway) contentRailway.classList.remove("hidden");
     }
 
