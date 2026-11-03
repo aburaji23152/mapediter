@@ -1300,7 +1300,7 @@ function renderBoundaryLayers() {
     });
 }
 
-// 路線と駅の描画（駅のみ単独でハイライト表示する構成に変更）
+// 路線と駅の描画
 async function renderRailwayLayer() {
     if (boundaryLayers.railway) {
         map.removeLayer(boundaryLayers.railway);
@@ -1359,7 +1359,7 @@ async function renderRailwayLayer() {
         group.displayTarget = displayCircle;
         group.feature = feature;
 
-        // 対象の表示要素（displayCircle）のみをハイライトするよう直接アタッチ
+        // 駅のヒット要素にイベント登録
         bindTargetEvents(hitCircle, feature, displayCircle);
 
         return group;
@@ -1412,9 +1412,9 @@ async function renderRailwayLayer() {
             group.displayTarget = displayLine;
             group.feature = feature;
 
-            // ヒット線にはホバーカード表示のみアタッチ（路線自体の色変更は行わない）
+            // 路線のヒット要素にイベント登録
             hitLine.eachLayer(layer => {
-                bindTargetEvents(layer, feature, null);
+                bindTargetEvents(layer, feature, displayLine);
             });
 
             boundaryLayers.railway.addLayer(group);
@@ -1439,7 +1439,7 @@ async function renderRailwayLayer() {
     boundaryLayers.railway.addTo(map);
 }
 
-// ホバー時に単一の「駅」のみを赤色（#ef4444）にするイベントハンドラ
+// 駅ホバー時と路線ホバー時で処理を自動分岐するイベントハンドラ
 function bindTargetEvents(targetLayer, feature, displayTarget) {
     const props = feature.properties || {};
     const stationName = props.N02_005 || props.station_name || props.station || "";
@@ -1450,14 +1450,36 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
 
     targetLayer.on({
         mouseover: (e) => {
-            // ホバー対象が「駅」の場合、その駅の円（displayTarget）のみを赤色にハイライト
-            if (isStationFeature && displayTarget && displayTarget.setStyle) {
-                if (railwayConfig.station.show !== false) {
+            if (isStationFeature) {
+                // 【駅にホバーした場合】➔ 該当の駅（円）のみを赤色にハイライト
+                if (displayTarget && displayTarget.setStyle && railwayConfig.station.show !== false) {
                     displayTarget.setStyle({
                         fillColor: "#ef4444",
                         color: "#ffffff",
                         weight: (railwayConfig.station.strokeWeight || 2) + 1,
                         fillOpacity: 1.0
+                    });
+                }
+            } else {
+                // 【路線にホバーした場合】➔ 同一路線名を持つ「路線（線データ）」全体を赤色にハイライト
+                if (boundaryLayers.railway && lineName) {
+                    boundaryLayers.railway.eachLayer(group => {
+                        const feat = group.feature;
+                        if (!feat) return;
+                        const lProps = feat.properties || {};
+                        const lLineName = lProps.N02_003 || lProps.line_name || lProps.line || lProps.name;
+                        const isPt = feat.geometry?.type === "Point" || Boolean(lProps.N02_005 || lProps.station_name);
+
+                        if (lLineName === lineName && !isPt) {
+                            const target = group.displayTarget;
+                            if (target && target.setStyle) {
+                                target.setStyle({
+                                    color: "#ef4444",
+                                    weight: (railwayConfig.line.weight || 2.0) + 3.0,
+                                    opacity: 1.0
+                                });
+                            }
+                        }
                     });
                 }
             }
@@ -1466,10 +1488,24 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
             showHoverCard(true, companyName, mainTitle, "鉄道データ");
         },
         mouseout: (e) => {
-            // マウスが離れたら元の駅スタイルに戻す
-            if (isStationFeature && displayTarget && displayTarget.setStyle) {
-                const orig = getRailwayFeatureStyle(feature);
-                displayTarget.setStyle(orig);
+            if (isStationFeature) {
+                // 【駅からの離脱】➔ 駅のスタイルを復元
+                if (displayTarget && displayTarget.setStyle) {
+                    const orig = getRailwayFeatureStyle(feature);
+                    displayTarget.setStyle(orig);
+                }
+            } else {
+                // 【路線からの離脱】➔ 路線全要素のスタイルを復元
+                if (boundaryLayers.railway) {
+                    boundaryLayers.railway.eachLayer(group => {
+                        const feat = group.feature;
+                        const target = group.displayTarget;
+                        if (feat && target && target.setStyle) {
+                            const orig = getRailwayFeatureStyle(feat);
+                            target.setStyle(orig);
+                        }
+                    });
+                }
             }
             showHoverCard(false);
         }
