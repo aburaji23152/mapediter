@@ -66,6 +66,7 @@ let colorState = {};
 let currentCityMap = {};
 let nationalFeaturesCache = null;
 let railwayGeoJsonCache = null;
+let selectedRailwayLines = new Set(); // クリック固定（トグル選択）された路線名を保持
 
 let defaultLandColor = "#ffffff";
 let enableLandOpacity = false;
@@ -1394,8 +1395,12 @@ async function renderRailwayLayer() {
         } else if (!isStation && isLineGeom) {
             const group = L.layerGroup();
             const baseStyle = getRailwayFeatureStyle(feature);
+            const lineName = getLineName(props);
 
-            // 判定用の透明太線（ホバー判定領域を40px幅に拡大）
+            // 選択済みの路線であれば初期描画時も赤色を反映
+            const isSelected = lineName && selectedRailwayLines.has(lineName);
+
+            // 判定用の透明太線（40px幅）
             const hitLine = L.geoJSON(feature, {
                 pane: "railwayPane",
                 style: {
@@ -1413,6 +1418,9 @@ async function renderRailwayLayer() {
                 pane: "railwayPane",
                 style: {
                     ...baseStyle,
+                    color: isSelected ? "#ef4444" : baseStyle.color,
+                    weight: isSelected ? (railwayConfig.line.weight || 2.0) + 3.0 : baseStyle.weight,
+                    opacity: isSelected ? 1.0 : baseStyle.opacity,
                     interactive: false
                 }
             });
@@ -1449,7 +1457,38 @@ async function renderRailwayLayer() {
     boundaryLayers.railway.addTo(map);
 }
 
-// 駅ホバー時と路線ホバー時で処理を自動分岐するイベントハンドラ
+// 路線全体のスタイル（ハイライト／通常）を更新するヘルパー関数
+function updateLineHighlight(targetLineName, isHover) {
+    if (!boundaryLayers.railway || !targetLineName) return;
+
+    const isSelected = selectedRailwayLines.has(targetLineName);
+
+    boundaryLayers.railway.eachLayer(group => {
+        const feat = group.feature;
+        if (!feat) return;
+        const lProps = feat.properties || {};
+        const lLineName = getLineName(lProps);
+        const isPt = feat.geometry?.type === "Point" || Boolean(getStationName(lProps));
+
+        if (lLineName && lLineName === targetLineName && !isPt) {
+            const target = group.displayTarget;
+            if (target && target.setStyle) {
+                if (isSelected || isHover) {
+                    target.setStyle({
+                        color: "#ef4444",
+                        weight: (railwayConfig.line.weight || 2.0) + 3.0,
+                        opacity: 1.0
+                    });
+                } else {
+                    const orig = getRailwayFeatureStyle(feat);
+                    target.setStyle(orig);
+                }
+            }
+        }
+    });
+}
+
+// 駅ホバー時と路線ホバー／クリック時で処理を自動分岐するイベントハンドラ
 function bindTargetEvents(targetLayer, feature, displayTarget) {
     const props = feature.properties || {};
     const stationName = getStationName(props);
@@ -1471,37 +1510,8 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
                     });
                 }
             } else {
-                // 【路線にホバーした場合】
-                // 1. カーソルが載った路線要素自身を赤色にハイライト
-                if (displayTarget && displayTarget.setStyle) {
-                    displayTarget.setStyle({
-                        color: "#ef4444",
-                        weight: (railwayConfig.line.weight || 2.0) + 3.0,
-                        opacity: 1.0
-                    });
-                }
-
-                // 2. 同一路線名を持つ他の路線区間もすべて赤色にハイライト
-                if (boundaryLayers.railway && lineName) {
-                    boundaryLayers.railway.eachLayer(group => {
-                        const feat = group.feature;
-                        if (!feat) return;
-                        const lProps = feat.properties || {};
-                        const lLineName = getLineName(lProps);
-                        const isPt = feat.geometry?.type === "Point" || Boolean(getStationName(lProps));
-
-                        if (lLineName && lLineName === lineName && !isPt) {
-                            const target = group.displayTarget;
-                            if (target && target.setStyle) {
-                                target.setStyle({
-                                    color: "#ef4444",
-                                    weight: (railwayConfig.line.weight || 2.0) + 3.0,
-                                    opacity: 1.0
-                                });
-                            }
-                        }
-                    });
-                }
+                // 【路線にホバーした場合】➔ 同一路線名を持つ全区間をハイライト
+                updateLineHighlight(lineName, true);
             }
 
             const mainTitle = stationName ? `${stationName}駅（${lineName}）` : (lineName || "路線名不明");
@@ -1515,24 +1525,22 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
                     displayTarget.setStyle(orig);
                 }
             } else {
-                // 【路線からの離脱】➔ 該当要素および全路線のスタイルを復元
-                if (displayTarget && displayTarget.setStyle) {
-                    const orig = getRailwayFeatureStyle(feature);
-                    displayTarget.setStyle(orig);
-                }
-
-                if (boundaryLayers.railway) {
-                    boundaryLayers.railway.eachLayer(group => {
-                        const feat = group.feature;
-                        const target = group.displayTarget;
-                        if (feat && target && target.setStyle) {
-                            const orig = getRailwayFeatureStyle(feat);
-                            target.setStyle(orig);
-                        }
-                    });
-                }
+                // 【路線からの離脱】➔ 選択状態でなければ元のスタイルに復元
+                updateLineHighlight(lineName, false);
             }
             showHoverCard(false);
+        },
+        click: (e) => {
+            L.DomEvent.stopPropagation(e);
+            if (!isStationFeature && lineName) {
+                // 【路線クリック】➔ 選択状態（赤色固定）をトグル切替
+                if (selectedRailwayLines.has(lineName)) {
+                    selectedRailwayLines.delete(lineName);
+                } else {
+                    selectedRailwayLines.add(lineName);
+                }
+                updateLineHighlight(lineName, true);
+            }
         }
     });
 }
