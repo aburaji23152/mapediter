@@ -259,14 +259,17 @@ function getLineName(props) {
 
 function getLineCompany(props) {
     if (!props) return "";
-    return props.N02_004 || props.N02_002 || props.company || "";
+    return props.N02_004 || props.company || props.company_name || props.operator || props.railway_company || props.corp_name || props.provider || props.N02_002 || "";
 }
 
 function getLineKey(props) {
+    if (!props) return "";
     const line = getLineName(props);
-    const company = getLineCompany(props);
     if (!line) return "";
-    return company ? `${company}::${line}` : line;
+    const company = getLineCompany(props);
+    const type = props.N02_001 || "";
+    const pref = props.pref || props.N03_001 || "";
+    return `${company || 'COMP_UNKNOWN'}::${type}::${pref}::${line}`;
 }
 
 function getStationName(props) {
