@@ -246,6 +246,16 @@ function getFeaturePrefCode(feature) {
     return "";
 }
 
+function getLineName(props) {
+    if (!props) return "";
+    return props.N02_003 || props.line_name || props.line || props.name || props.title || "";
+}
+
+function getStationName(props) {
+    if (!props) return "";
+    return props.N02_005 || props.station_name || props.station || props.st_name || "";
+}
+
 async function fetchRailwayData() {
     if (railwayGeoJsonCache) return railwayGeoJsonCache;
 
@@ -323,7 +333,7 @@ function getRailwayFeatureStyle(feature) {
     }
 
     const geomType = feature.geometry?.type;
-    const isStation = geomType === "Point" || Boolean(feature.properties?.N02_005 || feature.properties?.station_name || feature.properties?.station);
+    const isStation = geomType === "Point" || Boolean(getStationName(feature.properties));
 
     if (isStation) {
         const st = railwayConfig.station || {};
@@ -1372,7 +1382,7 @@ async function renderRailwayLayer() {
         const geom = feature.geometry;
         if (!geom) return;
 
-        const isStation = Boolean(props.N02_005 || props.station_name || props.station);
+        const isStation = Boolean(getStationName(props));
         const isLineGeom = geom.type === "LineString" || geom.type === "MultiLineString";
 
         if (isStation && isLineGeom) return;
@@ -1423,7 +1433,7 @@ async function renderRailwayLayer() {
 
     if (railwayConfig.station.show !== false) {
         features.forEach(f => {
-            const isStation = Boolean(f.properties?.N02_005 || f.properties?.station_name || f.properties?.station);
+            const isStation = Boolean(getStationName(f.properties));
             const isLineGeom = f.geometry?.type === "LineString" || f.geometry?.type === "MultiLineString";
 
             if (isStation && isLineGeom) {
@@ -1442,11 +1452,11 @@ async function renderRailwayLayer() {
 // 駅ホバー時と路線ホバー時で処理を自動分岐するイベントハンドラ
 function bindTargetEvents(targetLayer, feature, displayTarget) {
     const props = feature.properties || {};
-    const stationName = props.N02_005 || props.station_name || props.station || "";
-    const lineName = props.N02_003 || props.line_name || props.line || props.name || "";
+    const stationName = getStationName(props);
+    const lineName = getLineName(props);
     const companyName = props.N02_004 || props.N02_002 || props.company || "鉄道事業者";
 
-    const isStationFeature = feature.geometry?.type === "Point" || Boolean(stationName);
+    const isStationFeature = feature.geometry?.type === "Point" || (Boolean(stationName) && feature.geometry?.type !== "LineString" && feature.geometry?.type !== "MultiLineString");
 
     targetLayer.on({
         mouseover: (e) => {
@@ -1461,16 +1471,26 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
                     });
                 }
             } else {
-                // 【路線にホバーした場合】➔ 同一路線名を持つ「路線（線データ）」全体を赤色にハイライト
+                // 【路線にホバーした場合】
+                // 1. カーソルが載った路線要素自身を赤色にハイライト
+                if (displayTarget && displayTarget.setStyle) {
+                    displayTarget.setStyle({
+                        color: "#ef4444",
+                        weight: (railwayConfig.line.weight || 2.0) + 3.0,
+                        opacity: 1.0
+                    });
+                }
+
+                // 2. 同一路線名を持つ他の路線区間もすべて赤色にハイライト
                 if (boundaryLayers.railway && lineName) {
                     boundaryLayers.railway.eachLayer(group => {
                         const feat = group.feature;
                         if (!feat) return;
                         const lProps = feat.properties || {};
-                        const lLineName = lProps.N02_003 || lProps.line_name || lProps.line || lProps.name;
-                        const isPt = feat.geometry?.type === "Point" || Boolean(lProps.N02_005 || lProps.station_name);
+                        const lLineName = getLineName(lProps);
+                        const isPt = feat.geometry?.type === "Point" || Boolean(getStationName(lProps));
 
-                        if (lLineName === lineName && !isPt) {
+                        if (lLineName && lLineName === lineName && !isPt) {
                             const target = group.displayTarget;
                             if (target && target.setStyle) {
                                 target.setStyle({
@@ -1495,7 +1515,12 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
                     displayTarget.setStyle(orig);
                 }
             } else {
-                // 【路線からの離脱】➔ 路線全要素のスタイルを復元
+                // 【路線からの離脱】➔ 該当要素および全路線のスタイルを復元
+                if (displayTarget && displayTarget.setStyle) {
+                    const orig = getRailwayFeatureStyle(feature);
+                    displayTarget.setStyle(orig);
+                }
+
                 if (boundaryLayers.railway) {
                     boundaryLayers.railway.eachLayer(group => {
                         const feat = group.feature;
@@ -1908,7 +1933,7 @@ function generateMapSvgString() {
             const geom = f.geometry;
             if (!geom) return;
 
-            const isStation = Boolean(f.properties?.N02_005 || f.properties?.station_name || f.properties?.station);
+            const isStation = Boolean(getStationName(f.properties));
             const style = getRailwayFeatureStyle(f);
             if (!style || style.opacity === 0) return;
 
