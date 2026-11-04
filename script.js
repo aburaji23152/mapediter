@@ -1601,7 +1601,7 @@ function updateStationHighlight(targetStationKey, isHover) {
     });
 }
 
-// 鉄道操作パネル（選択中路線／駅の情報表示＋色・サイズ変更）の描画更新
+// 鉄道操作パネル（選択中路線／駅の情報表示＋各項目リセット付色・サイズ変更）の描画更新
 function renderRailwayControlPanel() {
     let container = document.getElementById("railwaySelectedControlCard");
     const parent = document.getElementById("tabContentRailway");
@@ -1635,13 +1635,18 @@ function renderRailwayControlPanel() {
         
         const defaultSt = railwayConfig.station;
         const currentCustom = stationColorState[stKey] || {};
+        
+        const hasFillCustom = currentCustom.color !== undefined;
+        const hasStrokeCustom = currentCustom.strokeColor !== undefined;
+        const hasRadiusCustom = currentCustom.radius !== undefined;
+        const hasAnyCustom = hasFillCustom || hasStrokeCustom || hasRadiusCustom;
+
         const fillColor = currentCustom.color || defaultSt.color || "#1e293b";
         const strokeColor = currentCustom.strokeColor || defaultSt.strokeColor || "#ffffff";
         const radius = currentCustom.radius !== undefined ? currentCustom.radius : (defaultSt.radius || 5);
-        const hasCustom = Boolean(stationColorState[stKey]);
 
         html += `
-            <div class="p-2.5 bg-white border border-indigo-100 rounded-lg shadow-xs space-y-2">
+            <div class="p-2.5 bg-white border border-indigo-100 rounded-lg shadow-xs space-y-2.5">
                 <div class="flex items-center justify-between border-b border-slate-100 pb-1.5">
                     <span class="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
                         <i data-lucide="map-pin" class="w-3.5 h-3.5 text-indigo-600"></i> 選択中の駅
@@ -1655,27 +1660,37 @@ function renderRailwayControlPanel() {
                     <div class="text-sm font-bold text-slate-800">${stationName}駅</div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100">
+                <div class="space-y-2 pt-1 border-t border-slate-100">
                     <div class="flex items-center justify-between">
                         <span class="text-[11px] font-medium text-slate-600">塗り色</span>
-                        <input type="color" id="inputSelectedStationColor" value="${fillColor}" class="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
+                        <div class="flex items-center gap-1.5">
+                            <input type="color" id="inputSelectedStationColor" value="${fillColor}" class="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
+                            ${hasFillCustom ? `<button type="button" id="btnClearStationFillColor" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition">リセット</button>` : ''}
+                        </div>
                     </div>
+
                     <div class="flex items-center justify-between">
                         <span class="text-[11px] font-medium text-slate-600">枠線色</span>
-                        <input type="color" id="inputSelectedStationStrokeColor" value="${strokeColor}" class="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
+                        <div class="flex items-center gap-1.5">
+                            <input type="color" id="inputSelectedStationStrokeColor" value="${strokeColor}" class="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
+                            ${hasStrokeCustom ? `<button type="button" id="btnClearStationStrokeColor" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition">リセット</button>` : ''}
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-[11px] font-medium text-slate-600 shrink-0">サイズ</span>
+                        <div class="flex items-center gap-1.5 grow justify-end">
+                            <input type="range" id="rangeSelectedStationRadius" min="2" max="15" value="${radius}" class="w-20 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                            <span class="text-[11px] font-bold text-slate-700 w-3 text-right" id="valSelectedStationRadius">${radius}</span>
+                            ${hasRadiusCustom ? `<button type="button" id="btnClearStationRadius" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition shrink-0">リセット</button>` : ''}
+                        </div>
                     </div>
                 </div>
 
-                <div class="flex items-center justify-between gap-2 pt-1">
-                    <span class="text-[11px] font-medium text-slate-600">サイズ</span>
-                    <input type="range" id="rangeSelectedStationRadius" min="2" max="15" value="${radius}" class="w-24 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
-                    <span class="text-[11px] font-bold text-slate-700 w-4 text-right" id="valSelectedStationRadius">${radius}</span>
-                </div>
-
-                ${hasCustom ? `
-                    <div class="pt-1 text-right">
-                        <button type="button" id="btnClearSelectedStationColor" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition">
-                            駅デザインを全体設定にリセット
+                ${hasAnyCustom ? `
+                    <div class="pt-1.5 border-t border-slate-100 text-right">
+                        <button type="button" id="btnClearSelectedStationAll" class="w-full py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-[10px] rounded font-semibold transition">
+                            駅設定をすべて初期化
                         </button>
                     </div>
                 ` : ''}
@@ -1737,29 +1752,42 @@ function renderRailwayControlPanel() {
             renderRailwayControlPanel();
         });
 
-        const updateStationCustom = () => {
-            const col = document.getElementById("inputSelectedStationColor")?.value;
-            const stroke = document.getElementById("inputSelectedStationStrokeColor")?.value;
-            const rad = parseInt(document.getElementById("rangeSelectedStationRadius")?.value || "5", 10);
-
-            stationColorState[stKey] = {
-                color: col,
-                strokeColor: stroke,
-                radius: rad
-            };
-
-            const valEl = document.getElementById("valSelectedStationRadius");
-            if (valEl) valEl.textContent = rad;
-
+        const updateStationCustomProp = (prop, val) => {
+            if (!stationColorState[stKey]) stationColorState[stKey] = {};
+            stationColorState[stKey][prop] = val;
             updateStationHighlight(stKey, false);
             saveToLocalStorage();
+            renderRailwayControlPanel();
         };
 
-        document.getElementById("inputSelectedStationColor")?.addEventListener("input", updateStationCustom);
-        document.getElementById("inputSelectedStationStrokeColor")?.addEventListener("input", updateStationCustom);
-        document.getElementById("rangeSelectedStationRadius")?.addEventListener("input", updateStationCustom);
+        const clearStationCustomProp = (prop) => {
+            if (stationColorState[stKey]) {
+                delete stationColorState[stKey][prop];
+                if (Object.keys(stationColorState[stKey]).length === 0) {
+                    delete stationColorState[stKey];
+                }
+            }
+            updateStationHighlight(stKey, false);
+            saveToLocalStorage();
+            renderRailwayControlPanel();
+        };
 
-        document.getElementById("btnClearSelectedStationColor")?.addEventListener("click", () => {
+        document.getElementById("inputSelectedStationColor")?.addEventListener("input", (e) => {
+            updateStationCustomProp("color", e.target.value);
+        });
+        document.getElementById("inputSelectedStationStrokeColor")?.addEventListener("input", (e) => {
+            updateStationCustomProp("strokeColor", e.target.value);
+        });
+        document.getElementById("rangeSelectedStationRadius")?.addEventListener("input", (e) => {
+            const rad = parseInt(e.target.value, 10);
+            updateStationCustomProp("radius", rad);
+        });
+
+        document.getElementById("btnClearStationFillColor")?.addEventListener("click", () => clearStationCustomProp("color"));
+        document.getElementById("btnClearStationStrokeColor")?.addEventListener("click", () => clearStationCustomProp("strokeColor"));
+        document.getElementById("btnClearStationRadius")?.addEventListener("click", () => clearStationCustomProp("radius"));
+
+        document.getElementById("btnClearSelectedStationAll")?.addEventListener("click", () => {
             delete stationColorState[stKey];
             updateStationHighlight(stKey, false);
             saveToLocalStorage();
