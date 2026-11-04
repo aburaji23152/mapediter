@@ -63,10 +63,10 @@ let activeTool = "paint";
 let selectedColor = BASE_COLORS[0];
 
 let colorState = {};
+let railwayColorState = {}; // 路線キーごとのカラー保持状態
 let currentCityMap = {};
 let nationalFeaturesCache = null;
 let railwayGeoJsonCache = null;
-let selectedRailwayLines = new Set(); // クリック固定（トグル選択）された事業者名+路線名キーを保持
 
 let defaultLandColor = "#ffffff";
 let enableLandOpacity = false;
@@ -110,6 +110,7 @@ let tempIncludeIslands = { ...includeIslands };
 
 const STORAGE_KEY_MAP_MODE = "japan_map_mode_v1";
 const STORAGE_KEY_COLOR_STATE = "japan_map_color_state_v1";
+const STORAGE_KEY_RAILWAY_COLOR_STATE = "japan_map_railway_color_state_v1";
 const STORAGE_KEY_SELECTED_PREFS = "japan_map_selected_prefs_v1";
 const STORAGE_KEY_ISLANDS = "japan_map_include_islands_v1";
 const STORAGE_KEY_BOUNDARIES = "japan_map_boundaries_v1";
@@ -422,6 +423,7 @@ function saveToLocalStorage() {
     try {
         localStorage.setItem(STORAGE_KEY_MAP_MODE, mapMode);
         localStorage.setItem(STORAGE_KEY_COLOR_STATE, JSON.stringify(colorState));
+        localStorage.setItem(STORAGE_KEY_RAILWAY_COLOR_STATE, JSON.stringify(railwayColorState));
         localStorage.setItem(STORAGE_KEY_SELECTED_PREFS, JSON.stringify(selectedPrefCodes));
         localStorage.setItem(STORAGE_KEY_ISLANDS, JSON.stringify(includeIslands));
         localStorage.setItem(STORAGE_KEY_BOUNDARIES, JSON.stringify(boundarySettings));
@@ -444,6 +446,7 @@ function loadFromLocalStorage() {
     try {
         const savedMode = localStorage.getItem(STORAGE_KEY_MAP_MODE);
         const savedState = localStorage.getItem(STORAGE_KEY_COLOR_STATE);
+        const savedRailwayColors = localStorage.getItem(STORAGE_KEY_RAILWAY_COLOR_STATE);
         const savedPrefs = localStorage.getItem(STORAGE_KEY_SELECTED_PREFS);
         const savedIslands = localStorage.getItem(STORAGE_KEY_ISLANDS);
         const savedBoundaries = localStorage.getItem(STORAGE_KEY_BOUNDARIES);
@@ -459,6 +462,7 @@ function loadFromLocalStorage() {
 
         if (savedMode) mapMode = savedMode;
         if (savedState) colorState = JSON.parse(savedState) || {};
+        if (savedRailwayColors) railwayColorState = JSON.parse(savedRailwayColors) || {};
         if (savedPrefs) selectedPrefCodes = JSON.parse(savedPrefs) || ["ALL"];
         if (savedIslands) includeIslands = { ...includeIslands, ...JSON.parse(savedIslands) };
         if (savedBoundaries) boundarySettings = { ...boundarySettings, ...JSON.parse(savedBoundaries) };
@@ -1414,7 +1418,8 @@ async function renderRailwayLayer() {
             const baseStyle = getRailwayFeatureStyle(feature);
             const lineKey = getLineKey(props);
 
-            const isSelected = lineKey && selectedRailwayLines.has(lineKey);
+            const coloredHex = lineKey ? railwayColorState[lineKey] : null;
+            const isSelected = Boolean(coloredHex);
 
             // 判定用の透明太線（30px幅）
             const hitLine = L.geoJSON(feature, {
@@ -1434,8 +1439,8 @@ async function renderRailwayLayer() {
                 pane: "railwayPane",
                 style: {
                     ...baseStyle,
-                    color: isSelected ? "#ef4444" : baseStyle.color,
-                    weight: isSelected ? (railwayConfig.line.weight || 2.0) + 3.0 : baseStyle.weight,
+                    color: isSelected ? coloredHex : baseStyle.color,
+                    weight: isSelected ? (railwayConfig.line.weight || 2.0) + 2.0 : baseStyle.weight,
                     opacity: isSelected ? 1.0 : baseStyle.opacity,
                     interactive: false
                 }
@@ -1490,11 +1495,11 @@ async function renderRailwayLayer() {
     boundaryLayers.railway.addTo(map);
 }
 
-// 路線全体のスタイル（ハイライト／通常）を更新するヘルパー関数
+// 路線全体のスタイル（ハイライト／通常／設定色）を更新するヘルパー関数
 function updateLineHighlight(targetLineKey, isHover) {
     if (!boundaryLayers.railway || !targetLineKey) return;
 
-    const isSelected = selectedRailwayLines.has(targetLineKey);
+    const coloredHex = railwayColorState[targetLineKey];
 
     boundaryLayers.railway.eachLayer(layerOrGroup => {
         const processGroup = (group) => {
@@ -1507,15 +1512,21 @@ function updateLineHighlight(targetLineKey, isHover) {
             if (lLineKey && lLineKey === targetLineKey && !isPt) {
                 const target = group.displayTarget;
                 if (target && target.setStyle) {
-                    if (isSelected || isHover) {
+                    const baseStyle = getRailwayFeatureStyle(feat);
+                    if (coloredHex) {
+                        target.setStyle({
+                            color: coloredHex,
+                            weight: (railwayConfig.line.weight || 2.0) + (isHover ? 3.0 : 2.0),
+                            opacity: 1.0
+                        });
+                    } else if (isHover) {
                         target.setStyle({
                             color: "#ef4444",
                             weight: (railwayConfig.line.weight || 2.0) + 3.0,
                             opacity: 1.0
                         });
                     } else {
-                        const orig = getRailwayFeatureStyle(feat);
-                        target.setStyle(orig);
+                        target.setStyle(baseStyle);
                     }
                 }
             }
@@ -1569,7 +1580,7 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
                     displayTarget.setStyle(orig);
                 }
             } else {
-                // 【路線からの離脱】➔ 選択状態でなければ元のスタイルに復元
+                // 【路線からの離脱】➔ スタイルを復元／設定色を維持
                 updateLineHighlight(lineKey, false);
             }
             showHoverCard(false);
@@ -1577,13 +1588,18 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
         click: (e) => {
             L.DomEvent.stopPropagation(e);
             if (!isStationFeature && lineKey) {
-                // 【路線クリック】➔ 会社+路線単位で選択状態（赤色固定）をトグル切替
-                if (selectedRailwayLines.has(lineKey)) {
-                    selectedRailwayLines.delete(lineKey);
+                // 【路線クリック】➔ 現在選択中の色で着色（消しゴムモード時は削除、同じ色の場合は解除）
+                if (activeTool === "eraser") {
+                    delete railwayColorState[lineKey];
                 } else {
-                    selectedRailwayLines.add(lineKey);
+                    if (railwayColorState[lineKey] === selectedColor) {
+                        delete railwayColorState[lineKey];
+                    } else {
+                        railwayColorState[lineKey] = selectedColor;
+                    }
                 }
                 updateLineHighlight(lineKey, true);
+                saveToLocalStorage();
             }
         }
     });
@@ -1854,6 +1870,7 @@ function exportStateJson() {
         exportedAt: new Date().toISOString(),
         mapMode: mapMode,
         colorState: colorState,
+        railwayColorState: railwayColorState,
         defaultLandColor: defaultLandColor,
         enableLandOpacity: enableLandOpacity,
         defaultLandOpacity: defaultLandOpacity,
@@ -1885,6 +1902,7 @@ function importStateJson(e) {
             if (data && data.colorState) {
                 if (data.mapMode) mapMode = data.mapMode;
                 colorState = { ...colorState, ...data.colorState };
+                if (data.railwayColorState) railwayColorState = data.railwayColorState;
                 if (data.defaultLandColor) defaultLandColor = data.defaultLandColor;
                 if (data.enableLandOpacity !== undefined) enableLandOpacity = data.enableLandOpacity;
                 if (data.defaultLandOpacity !== undefined) defaultLandOpacity = parseFloat(data.defaultLandOpacity);
@@ -1986,8 +2004,18 @@ function generateMapSvgString() {
             if (!geom) return;
 
             const isStation = Boolean(getStationName(f.properties));
-            const style = getRailwayFeatureStyle(f);
+            let style = getRailwayFeatureStyle(f);
             if (!style || style.opacity === 0) return;
+
+            const lineKey = getLineKey(f.properties);
+            if (!isStation && lineKey && railwayColorState[lineKey]) {
+                style = {
+                    ...style,
+                    color: railwayColorState[lineKey],
+                    weight: (railwayConfig.line.weight || 2.0) + 2.0,
+                    opacity: 1.0
+                };
+            }
 
             let dashAttr = "";
             if (style.dashArray) dashAttr = `stroke-dasharray="${style.dashArray}"`;
