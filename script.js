@@ -64,6 +64,8 @@ let selectedColor = BASE_COLORS[0];
 
 let colorState = {};
 let railwayColorState = {}; // 路線キーごとのカラー保持状態
+let currentSelectedLineFeature = null; // 現在選択中の路線 Feature 情報
+
 let currentCityMap = {};
 let nationalFeaturesCache = null;
 let railwayGeoJsonCache = null;
@@ -136,6 +138,7 @@ window.onload = async function() {
     initBoundaryUIValues();
     updateHeaderPrefButton();
     updateModeUI();
+    renderRailwayControlPanel();
     lucide.createIcons();
 
     if (railwayConfig.show) {
@@ -1541,6 +1544,89 @@ function updateLineHighlight(targetLineKey, isHover) {
     });
 }
 
+// 鉄道操作パネル（選択中路線の情報表示＋色変更）の描画更新
+function renderRailwayControlPanel() {
+    let container = document.getElementById("railwaySelectedLineCard");
+    const parent = document.getElementById("tabContentRailway");
+    if (!parent) return;
+
+    if (!container) {
+        container = document.createElement("div");
+        container.id = "railwaySelectedLineCard";
+        container.className = "mb-4 p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl";
+        parent.insertBefore(container, parent.firstChild);
+    }
+
+    if (!currentSelectedLineFeature) {
+        container.innerHTML = `
+            <div class="text-xs text-slate-500 text-center py-2">
+                地図上の路線をクリックすると、ここに詳細情報とカラー変更パネルが表示されます。
+            </div>
+        `;
+        return;
+    }
+
+    const props = currentSelectedLineFeature.properties || {};
+    const lineName = getLineName(props) || "路線名不明";
+    const companyName = getLineCompany(props) || "事業者不明";
+    const lineKey = getLineKey(props);
+    const currentColor = railwayColorState[lineKey] || railwayConfig.line.color || "#334155";
+    const hasCustomColor = Boolean(railwayColorState[lineKey]);
+
+    container.innerHTML = `
+        <div class="flex items-center justify-between border-b border-indigo-100 pb-2 mb-2">
+            <span class="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                <i data-lucide="train" class="w-3.5 h-3.5 text-indigo-600"></i> 選択中の路線
+            </span>
+            <button type="button" id="btnCloseLineDetail" class="text-slate-400 hover:text-slate-600 p-0.5">
+                <i data-lucide="x" class="w-3.5 h-3.5"></i>
+            </button>
+        </div>
+        <div class="space-y-2">
+            <div>
+                <div class="text-[10px] font-semibold text-slate-400">${companyName}</div>
+                <div class="text-sm font-bold text-slate-800">${lineName}</div>
+            </div>
+            
+            <div class="flex items-center justify-between gap-2 pt-1 border-t border-indigo-100">
+                <label class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <span>この路線の色:</span>
+                </label>
+                <div class="flex items-center gap-2">
+                    <input type="color" id="inputSelectedLineColor" value="${currentColor}" class="w-8 h-8 rounded-lg cursor-pointer border border-slate-300 p-0 bg-transparent">
+                    ${hasCustomColor ? `
+                        <button type="button" id="btnClearSelectedLineColor" class="px-2 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 text-[11px] rounded-md font-semibold transition">
+                            リセット
+                        </button>
+                    ` : ''}
+                </div>
+            </div>
+        </div>
+    `;
+
+    lucide.createIcons();
+
+    document.getElementById("btnCloseLineDetail")?.addEventListener("click", () => {
+        currentSelectedLineFeature = null;
+        renderRailwayControlPanel();
+    });
+
+    document.getElementById("inputSelectedLineColor")?.addEventListener("input", (e) => {
+        const newColor = e.target.value;
+        railwayColorState[lineKey] = newColor;
+        updateLineHighlight(lineKey, true);
+        saveToLocalStorage();
+        renderRailwayControlPanel();
+    });
+
+    document.getElementById("btnClearSelectedLineColor")?.addEventListener("click", () => {
+        delete railwayColorState[lineKey];
+        updateLineHighlight(lineKey, false);
+        saveToLocalStorage();
+        renderRailwayControlPanel();
+    });
+}
+
 // 駅ホバー時と路線ホバー／クリック時で処理を自動分岐するイベントハンドラ
 function bindTargetEvents(targetLayer, feature, displayTarget) {
     const props = feature.properties || {};
@@ -1588,18 +1674,11 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
         click: (e) => {
             L.DomEvent.stopPropagation(e);
             if (!isStationFeature && lineKey) {
-                // 【路線クリック】➔ 現在選択中の色で着色（消しゴムモード時は削除、同じ色の場合は解除）
-                if (activeTool === "eraser") {
-                    delete railwayColorState[lineKey];
-                } else {
-                    if (railwayColorState[lineKey] === selectedColor) {
-                        delete railwayColorState[lineKey];
-                    } else {
-                        railwayColorState[lineKey] = selectedColor;
-                    }
-                }
+                // 【路線クリック】➔ 鉄道タブに自動切り替えし、操作パネルに詳細とカラーピッカーを表示
+                switchTab("railway");
+                currentSelectedLineFeature = feature;
+                renderRailwayControlPanel();
                 updateLineHighlight(lineKey, true);
-                saveToLocalStorage();
             }
         }
     });
@@ -1925,6 +2004,7 @@ function importStateJson(e) {
                 updateTileLayer(selectedTileType);
                 refreshLayerStyles();
                 await renderRailwayLayer();
+                renderRailwayControlPanel();
                 saveToLocalStorage();
                 updateUIStats();
                 showToast("JSONから復元しました");
