@@ -64,7 +64,10 @@ let selectedColor = BASE_COLORS[0];
 
 let colorState = {};
 let railwayColorState = {}; // 路線キーごとのカラー保持状態
+let stationColorState = {}; // 駅キーごとのカラー・サイズ個別保持状態
+
 let currentSelectedLineFeature = null; // 現在選択中の路線 Feature 情報
+let currentSelectedStationFeature = null; // 現在選択中の駅 Feature 情報
 
 let currentCityMap = {};
 let nationalFeaturesCache = null;
@@ -113,6 +116,7 @@ let tempIncludeIslands = { ...includeIslands };
 const STORAGE_KEY_MAP_MODE = "japan_map_mode_v1";
 const STORAGE_KEY_COLOR_STATE = "japan_map_color_state_v1";
 const STORAGE_KEY_RAILWAY_COLOR_STATE = "japan_map_railway_color_state_v1";
+const STORAGE_KEY_STATION_COLOR_STATE = "japan_map_station_color_state_v1";
 const STORAGE_KEY_SELECTED_PREFS = "japan_map_selected_prefs_v1";
 const STORAGE_KEY_ISLANDS = "japan_map_include_islands_v1";
 const STORAGE_KEY_BOUNDARIES = "japan_map_boundaries_v1";
@@ -281,6 +285,15 @@ function getStationName(props) {
     return props.N02_005 || props.station_name || props.station || props.st_name || "";
 }
 
+function getStationKey(props) {
+    if (!props) return "";
+    const st = getStationName(props);
+    if (!st) return "";
+    const line = getLineName(props);
+    const company = getLineCompany(props);
+    return `${company || 'COMP_UNKNOWN'}::${line || 'LINE_UNKNOWN'}::${st}`;
+}
+
 async function fetchRailwayData() {
     if (railwayGeoJsonCache) return railwayGeoJsonCache;
 
@@ -363,11 +376,15 @@ function getRailwayFeatureStyle(feature) {
     if (isStation) {
         const st = railwayConfig.station || {};
         if (st.show === false) return { opacity: 0, fillOpacity: 0, weight: 0, radius: 0 };
+        
+        const stKey = getStationKey(feature.properties);
+        const customSt = stKey ? stationColorState[stKey] : null;
+
         return {
-            fillColor: st.color || "#1e293b",
-            color: st.strokeColor || "#ffffff",
-            weight: st.strokeWeight !== undefined ? st.strokeWeight : 2,
-            radius: st.radius || 5,
+            fillColor: (customSt && customSt.color) ? customSt.color : (st.color || "#1e293b"),
+            color: (customSt && customSt.strokeColor) ? customSt.strokeColor : (st.strokeColor || "#ffffff"),
+            weight: (customSt && customSt.strokeWeight !== undefined) ? customSt.strokeWeight : (st.strokeWeight !== undefined ? st.strokeWeight : 2),
+            radius: (customSt && customSt.radius !== undefined) ? customSt.radius : (st.radius || 5),
             opacity: st.opacity !== undefined ? st.opacity : 0.95,
             fillOpacity: st.opacity !== undefined ? st.opacity : 0.95,
             interactive: true
@@ -427,6 +444,7 @@ function saveToLocalStorage() {
         localStorage.setItem(STORAGE_KEY_MAP_MODE, mapMode);
         localStorage.setItem(STORAGE_KEY_COLOR_STATE, JSON.stringify(colorState));
         localStorage.setItem(STORAGE_KEY_RAILWAY_COLOR_STATE, JSON.stringify(railwayColorState));
+        localStorage.setItem(STORAGE_KEY_STATION_COLOR_STATE, JSON.stringify(stationColorState));
         localStorage.setItem(STORAGE_KEY_SELECTED_PREFS, JSON.stringify(selectedPrefCodes));
         localStorage.setItem(STORAGE_KEY_ISLANDS, JSON.stringify(includeIslands));
         localStorage.setItem(STORAGE_KEY_BOUNDARIES, JSON.stringify(boundarySettings));
@@ -450,6 +468,7 @@ function loadFromLocalStorage() {
         const savedMode = localStorage.getItem(STORAGE_KEY_MAP_MODE);
         const savedState = localStorage.getItem(STORAGE_KEY_COLOR_STATE);
         const savedRailwayColors = localStorage.getItem(STORAGE_KEY_RAILWAY_COLOR_STATE);
+        const savedStationColors = localStorage.getItem(STORAGE_KEY_STATION_COLOR_STATE);
         const savedPrefs = localStorage.getItem(STORAGE_KEY_SELECTED_PREFS);
         const savedIslands = localStorage.getItem(STORAGE_KEY_ISLANDS);
         const savedBoundaries = localStorage.getItem(STORAGE_KEY_BOUNDARIES);
@@ -466,6 +485,7 @@ function loadFromLocalStorage() {
         if (savedMode) mapMode = savedMode;
         if (savedState) colorState = JSON.parse(savedState) || {};
         if (savedRailwayColors) railwayColorState = JSON.parse(savedRailwayColors) || {};
+        if (savedStationColors) stationColorState = JSON.parse(savedStationColors) || {};
         if (savedPrefs) selectedPrefCodes = JSON.parse(savedPrefs) || ["ALL"];
         if (savedIslands) includeIslands = { ...includeIslands, ...JSON.parse(savedIslands) };
         if (savedBoundaries) boundarySettings = { ...boundarySettings, ...JSON.parse(savedBoundaries) };
@@ -1367,14 +1387,14 @@ async function renderRailwayLayer() {
 
     function createStationGroup(latlng, feature) {
         const group = L.layerGroup();
-        const st = railwayConfig.station;
+        const stStyle = getRailwayFeatureStyle(feature);
 
-        if (st.show === false) return group;
+        if (railwayConfig.station.show === false) return group;
         
         // 判定用の透明領域
         const hitCircle = L.circleMarker(latlng, {
             pane: "railwayPane",
-            radius: Math.max((st.radius || 5) + 10, 16),
+            radius: Math.max((stStyle.radius || 5) + 10, 16),
             color: "rgba(0,0,0,0)",
             fillColor: "rgba(0,0,0,0)",
             weight: 0,
@@ -1385,12 +1405,12 @@ async function renderRailwayLayer() {
         // 表示用デザイン要素
         const displayCircle = L.circleMarker(latlng, {
             pane: "railwayPane",
-            radius: st.radius || 5,
-            fillColor: st.color || "#1e293b",
-            color: st.strokeColor || "#ffffff",
-            weight: st.strokeWeight !== undefined ? st.strokeWeight : 2,
-            opacity: st.opacity || 0.95,
-            fillOpacity: st.opacity || 0.95,
+            radius: stStyle.radius || 5,
+            fillColor: stStyle.fillColor || "#1e293b",
+            color: stStyle.color || "#ffffff",
+            weight: stStyle.weight !== undefined ? stStyle.weight : 2,
+            opacity: stStyle.opacity || 0.95,
+            fillOpacity: stStyle.opacity || 0.95,
             interactive: false
         });
 
@@ -1469,7 +1489,6 @@ async function renderRailwayLayer() {
         if (!geom) return;
 
         const isStation = Boolean(getStationName(props));
-        const isLineGeom = geom.type === "LineString" || geom.type === "MultiLineString";
 
         if (isStation && geom.type === "Point") {
             const latlng = L.latLng(geom.coordinates[1], geom.coordinates[0]);
@@ -1544,87 +1563,234 @@ function updateLineHighlight(targetLineKey, isHover) {
     });
 }
 
-// 鉄道操作パネル（選択中路線の情報表示＋色変更）の描画更新
+// 駅のスタイル更新ヘルパー関数
+function updateStationHighlight(targetStationKey, isHover) {
+    if (!boundaryLayers.railway || !targetStationKey) return;
+
+    boundaryLayers.railway.eachLayer(layerOrGroup => {
+        const processGroup = (group) => {
+            const feat = group.feature;
+            if (!feat) return;
+            const stProps = feat.properties || {};
+            const stKey = getStationKey(stProps);
+
+            if (stKey && stKey === targetStationKey) {
+                const target = group.displayTarget;
+                if (target && target.setStyle) {
+                    const baseStyle = getRailwayFeatureStyle(feat);
+                    if (isHover) {
+                        target.setStyle({
+                            fillColor: "#ef4444",
+                            color: "#ffffff",
+                            weight: (baseStyle.weight || 2) + 1,
+                            fillOpacity: 1.0
+                        });
+                    } else {
+                        target.setStyle(baseStyle);
+                    }
+                }
+            }
+        };
+
+        if (layerOrGroup.eachLayer) {
+            layerOrGroup.eachLayer(subGroup => {
+                if (subGroup.feature) processGroup(subGroup);
+                else if (subGroup.eachLayer) subGroup.eachLayer(processGroup);
+            });
+        }
+    });
+}
+
+// 鉄道操作パネル（選択中路線／駅の情報表示＋色・サイズ変更）の描画更新
 function renderRailwayControlPanel() {
-    let container = document.getElementById("railwaySelectedLineCard");
+    let container = document.getElementById("railwaySelectedControlCard");
     const parent = document.getElementById("tabContentRailway");
     if (!parent) return;
 
     if (!container) {
         container = document.createElement("div");
-        container.id = "railwaySelectedLineCard";
-        container.className = "mb-4 p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl";
+        container.id = "railwaySelectedControlCard";
+        container.className = "mb-4 p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-3";
         parent.insertBefore(container, parent.firstChild);
     }
 
-    if (!currentSelectedLineFeature) {
+    if (!currentSelectedLineFeature && !currentSelectedStationFeature) {
         container.innerHTML = `
             <div class="text-xs text-slate-500 text-center py-2">
-                地図上の路線をクリックすると、ここに詳細情報とカラー変更パネルが表示されます。
+                地図上の路線や駅をクリックすると、ここに詳細情報とカスタマイズパネルが表示されます。
             </div>
         `;
         return;
     }
 
-    const props = currentSelectedLineFeature.properties || {};
-    const lineName = getLineName(props) || "路線名不明";
-    const companyName = getLineCompany(props) || "事業者不明";
-    const lineKey = getLineKey(props);
-    const currentColor = railwayColorState[lineKey] || railwayConfig.line.color || "#334155";
-    const hasCustomColor = Boolean(railwayColorState[lineKey]);
+    let html = "";
 
-    container.innerHTML = `
-        <div class="flex items-center justify-between border-b border-indigo-100 pb-2 mb-2">
-            <span class="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
-                <i data-lucide="train" class="w-3.5 h-3.5 text-indigo-600"></i> 選択中の路線
-            </span>
-            <button type="button" id="btnCloseLineDetail" class="text-slate-400 hover:text-slate-600 p-0.5">
-                <i data-lucide="x" class="w-3.5 h-3.5"></i>
-            </button>
-        </div>
-        <div class="space-y-2">
-            <div>
-                <div class="text-[10px] font-semibold text-slate-400">${companyName}</div>
-                <div class="text-sm font-bold text-slate-800">${lineName}</div>
-            </div>
-            
-            <div class="flex items-center justify-between gap-2 pt-1 border-t border-indigo-100">
-                <label class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                    <span>この路線の色:</span>
-                </label>
-                <div class="flex items-center gap-2">
-                    <input type="color" id="inputSelectedLineColor" value="${currentColor}" class="w-8 h-8 rounded-lg cursor-pointer border border-slate-300 p-0 bg-transparent">
-                    ${hasCustomColor ? `
-                        <button type="button" id="btnClearSelectedLineColor" class="px-2 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 text-[11px] rounded-md font-semibold transition">
-                            リセット
+    // 1. 選択中の駅パネル
+    if (currentSelectedStationFeature) {
+        const props = currentSelectedStationFeature.properties || {};
+        const stationName = getStationName(props) || "駅名不明";
+        const lineName = getLineName(props) || "路線名不明";
+        const companyName = getLineCompany(props) || "事業者不明";
+        const stKey = getStationKey(props);
+        
+        const defaultSt = railwayConfig.station;
+        const currentCustom = stationColorState[stKey] || {};
+        const fillColor = currentCustom.color || defaultSt.color || "#1e293b";
+        const strokeColor = currentCustom.strokeColor || defaultSt.strokeColor || "#ffffff";
+        const radius = currentCustom.radius !== undefined ? currentCustom.radius : (defaultSt.radius || 5);
+        const hasCustom = Boolean(stationColorState[stKey]);
+
+        html += `
+            <div class="p-2.5 bg-white border border-indigo-100 rounded-lg shadow-xs space-y-2">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                    <span class="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                        <i data-lucide="map-pin" class="w-3.5 h-3.5 text-indigo-600"></i> 選択中の駅
+                    </span>
+                    <button type="button" id="btnCloseStationDetail" class="text-slate-400 hover:text-slate-600 p-0.5">
+                        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
+                <div>
+                    <div class="text-[10px] font-semibold text-slate-400">${companyName} ・ ${lineName}</div>
+                    <div class="text-sm font-bold text-slate-800">${stationName}駅</div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-medium text-slate-600">塗り色</span>
+                        <input type="color" id="inputSelectedStationColor" value="${fillColor}" class="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-medium text-slate-600">枠線色</span>
+                        <input type="color" id="inputSelectedStationStrokeColor" value="${strokeColor}" class="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between gap-2 pt-1">
+                    <span class="text-[11px] font-medium text-slate-600">サイズ</span>
+                    <input type="range" id="rangeSelectedStationRadius" min="2" max="15" value="${radius}" class="w-24 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                    <span class="text-[11px] font-bold text-slate-700 w-4 text-right" id="valSelectedStationRadius">${radius}</span>
+                </div>
+
+                ${hasCustom ? `
+                    <div class="pt-1 text-right">
+                        <button type="button" id="btnClearSelectedStationColor" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition">
+                            駅デザインを全体設定にリセット
                         </button>
-                    ` : ''}
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+
+    // 2. 選択中の路線パネル
+    if (currentSelectedLineFeature) {
+        const props = currentSelectedLineFeature.properties || {};
+        const lineName = getLineName(props) || "路線名不明";
+        const companyName = getLineCompany(props) || "事業者不明";
+        const lineKey = getLineKey(props);
+        const currentColor = railwayColorState[lineKey] || railwayConfig.line.color || "#334155";
+        const hasCustomColor = Boolean(railwayColorState[lineKey]);
+
+        html += `
+            <div class="p-2.5 bg-white border border-indigo-100 rounded-lg shadow-xs space-y-2">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                    <span class="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                        <i data-lucide="train" class="w-3.5 h-3.5 text-indigo-600"></i> 選択中の路線
+                    </span>
+                    <button type="button" id="btnCloseLineDetail" class="text-slate-400 hover:text-slate-600 p-0.5">
+                        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
+                <div>
+                    <div class="text-[10px] font-semibold text-slate-400">${companyName}</div>
+                    <div class="text-sm font-bold text-slate-800">${lineName}</div>
+                </div>
+
+                <div class="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
+                    <label class="text-xs font-medium text-slate-700 flex items-center gap-1.5">
+                        <span>路線の色</span>
+                    </label>
+                    <div class="flex items-center gap-2">
+                        <input type="color" id="inputSelectedLineColor" value="${currentColor}" class="w-7 h-7 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
+                        ${hasCustomColor ? `
+                            <button type="button" id="btnClearSelectedLineColor" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition">
+                                リセット
+                            </button>
+                        ` : ''}
+                    </div>
                 </div>
             </div>
-        </div>
-    `;
+        `;
+    }
 
+    container.innerHTML = html;
     lucide.createIcons();
 
-    document.getElementById("btnCloseLineDetail")?.addEventListener("click", () => {
-        currentSelectedLineFeature = null;
-        renderRailwayControlPanel();
-    });
+    // イベントバインド: 駅
+    if (currentSelectedStationFeature) {
+        const props = currentSelectedStationFeature.properties || {};
+        const stKey = getStationKey(props);
 
-    document.getElementById("inputSelectedLineColor")?.addEventListener("input", (e) => {
-        const newColor = e.target.value;
-        railwayColorState[lineKey] = newColor;
-        updateLineHighlight(lineKey, true);
-        saveToLocalStorage();
-        renderRailwayControlPanel();
-    });
+        document.getElementById("btnCloseStationDetail")?.addEventListener("click", () => {
+            currentSelectedStationFeature = null;
+            renderRailwayControlPanel();
+        });
 
-    document.getElementById("btnClearSelectedLineColor")?.addEventListener("click", () => {
-        delete railwayColorState[lineKey];
-        updateLineHighlight(lineKey, false);
-        saveToLocalStorage();
-        renderRailwayControlPanel();
-    });
+        const updateStationCustom = () => {
+            const col = document.getElementById("inputSelectedStationColor")?.value;
+            const stroke = document.getElementById("inputSelectedStationStrokeColor")?.value;
+            const rad = parseInt(document.getElementById("rangeSelectedStationRadius")?.value || "5", 10);
+
+            stationColorState[stKey] = {
+                color: col,
+                strokeColor: stroke,
+                radius: rad
+            };
+
+            const valEl = document.getElementById("valSelectedStationRadius");
+            if (valEl) valEl.textContent = rad;
+
+            updateStationHighlight(stKey, false);
+            saveToLocalStorage();
+        };
+
+        document.getElementById("inputSelectedStationColor")?.addEventListener("input", updateStationCustom);
+        document.getElementById("inputSelectedStationStrokeColor")?.addEventListener("input", updateStationCustom);
+        document.getElementById("rangeSelectedStationRadius")?.addEventListener("input", updateStationCustom);
+
+        document.getElementById("btnClearSelectedStationColor")?.addEventListener("click", () => {
+            delete stationColorState[stKey];
+            updateStationHighlight(stKey, false);
+            saveToLocalStorage();
+            renderRailwayControlPanel();
+        });
+    }
+
+    // イベントバインド: 路線
+    if (currentSelectedLineFeature) {
+        const props = currentSelectedLineFeature.properties || {};
+        const lineKey = getLineKey(props);
+
+        document.getElementById("btnCloseLineDetail")?.addEventListener("click", () => {
+            currentSelectedLineFeature = null;
+            renderRailwayControlPanel();
+        });
+
+        document.getElementById("inputSelectedLineColor")?.addEventListener("input", (e) => {
+            const newColor = e.target.value;
+            railwayColorState[lineKey] = newColor;
+            updateLineHighlight(lineKey, true);
+            saveToLocalStorage();
+        });
+
+        document.getElementById("btnClearSelectedLineColor")?.addEventListener("click", () => {
+            delete railwayColorState[lineKey];
+            updateLineHighlight(lineKey, false);
+            saveToLocalStorage();
+            renderRailwayControlPanel();
+        });
+    }
 }
 
 // 駅ホバー時と路線ホバー／クリック時で処理を自動分岐するイベントハンドラ
@@ -1633,6 +1799,7 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
     const stationName = getStationName(props);
     const lineName = getLineName(props);
     const lineKey = getLineKey(props);
+    const stKey = getStationKey(props);
     const companyName = getLineCompany(props) || "鉄道事業者";
 
     // 描画対象が円マーカー（L.CircleMarker）であれば駅要素として判定
@@ -1661,10 +1828,7 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
         mouseout: (e) => {
             if (isStationFeature) {
                 // 【駅からの離脱】➔ 駅のスタイルを復元
-                if (displayTarget && displayTarget.setStyle) {
-                    const orig = getRailwayFeatureStyle(feature);
-                    displayTarget.setStyle(orig);
-                }
+                if (stKey) updateStationHighlight(stKey, false);
             } else {
                 // 【路線からの離脱】➔ スタイルを復元／設定色を維持
                 updateLineHighlight(lineKey, false);
@@ -1673,9 +1837,15 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
         },
         click: (e) => {
             L.DomEvent.stopPropagation(e);
-            if (!isStationFeature && lineKey) {
-                // 【路線クリック】➔ 鉄道タブに自動切り替えし、操作パネルに詳細とカラーピッカーを表示
-                switchTab("railway");
+            switchTab("railway");
+
+            if (isStationFeature && stKey) {
+                // 【駅クリック】➔ 選択中の駅としてコントロールパネルに表示
+                currentSelectedStationFeature = feature;
+                renderRailwayControlPanel();
+                updateStationHighlight(stKey, false);
+            } else if (lineKey) {
+                // 【路線クリック】➔ 選択中の路線としてコントロールパネルに表示
                 currentSelectedLineFeature = feature;
                 renderRailwayControlPanel();
                 updateLineHighlight(lineKey, true);
@@ -1950,6 +2120,7 @@ function exportStateJson() {
         mapMode: mapMode,
         colorState: colorState,
         railwayColorState: railwayColorState,
+        stationColorState: stationColorState,
         defaultLandColor: defaultLandColor,
         enableLandOpacity: enableLandOpacity,
         defaultLandOpacity: defaultLandOpacity,
@@ -1982,6 +2153,7 @@ function importStateJson(e) {
                 if (data.mapMode) mapMode = data.mapMode;
                 colorState = { ...colorState, ...data.colorState };
                 if (data.railwayColorState) railwayColorState = data.railwayColorState;
+                if (data.stationColorState) stationColorState = data.stationColorState;
                 if (data.defaultLandColor) defaultLandColor = data.defaultLandColor;
                 if (data.enableLandOpacity !== undefined) enableLandOpacity = data.enableLandOpacity;
                 if (data.defaultLandOpacity !== undefined) defaultLandOpacity = parseFloat(data.defaultLandOpacity);
