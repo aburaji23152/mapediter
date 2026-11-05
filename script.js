@@ -1620,132 +1620,156 @@ function renderRailwayControlPanel() {
                 地図上の路線や駅をクリックすると、ここに詳細情報とカスタマイズパネルが表示されます。
             </div>
         `;
-        return;
-    }
+    } else {
+        let html = "";
 
-    let html = "";
+        // 1. 選択中の駅パネル
+        if (currentSelectedStationFeature) {
+            const props = currentSelectedStationFeature.properties || {};
+            const stationName = getStationName(props) || "駅名不明";
+            const lineName = getLineName(props) || "路線名不明";
+            const companyName = getLineCompany(props) || "事業者不明";
+            const stKey = getStationKey(props);
+            
+            const defaultSt = railwayConfig.station;
+            const currentCustom = stationColorState[stKey] || {};
+            
+            const hasFillCustom = currentCustom.color !== undefined;
+            const hasStrokeCustom = currentCustom.strokeColor !== undefined;
+            const hasRadiusCustom = currentCustom.radius !== undefined;
+            const hasAnyCustom = hasFillCustom || hasStrokeCustom || hasRadiusCustom;
 
-    // 1. 選択中の駅パネル
-    if (currentSelectedStationFeature) {
-        const props = currentSelectedStationFeature.properties || {};
-        const stationName = getStationName(props) || "駅名不明";
-        const lineName = getLineName(props) || "路線名不明";
-        const companyName = getLineCompany(props) || "事業者不明";
-        const stKey = getStationKey(props);
-        
-        const defaultSt = railwayConfig.station;
-        const currentCustom = stationColorState[stKey] || {};
-        
-        const hasFillCustom = currentCustom.color !== undefined;
-        const hasStrokeCustom = currentCustom.strokeColor !== undefined;
-        const hasRadiusCustom = currentCustom.radius !== undefined;
-        const hasAnyCustom = hasFillCustom || hasStrokeCustom || hasRadiusCustom;
+            const fillColor = currentCustom.color || defaultSt.color || "#1e293b";
+            const strokeColor = currentCustom.strokeColor || defaultSt.strokeColor || "#ffffff";
+            const radius = currentCustom.radius !== undefined ? currentCustom.radius : (defaultSt.radius || 5);
 
-        const fillColor = currentCustom.color || defaultSt.color || "#1e293b";
-        const strokeColor = currentCustom.strokeColor || defaultSt.strokeColor || "#ffffff";
-        const radius = currentCustom.radius !== undefined ? currentCustom.radius : (defaultSt.radius || 5);
+            html += `
+                <div class="p-2.5 bg-white border border-indigo-100 rounded-lg shadow-xs space-y-2.5">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                        <span class="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                            <i data-lucide="map-pin" class="w-3.5 h-3.5 text-indigo-600"></i> 選択中の駅
+                        </span>
+                        <button type="button" id="btnCloseStationDetail" class="text-slate-400 hover:text-slate-600 p-0.5" title="閉じる">
+                            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+                    <div>
+                        <div class="text-[10px] font-semibold text-slate-400">${companyName} ・ ${lineName}</div>
+                        <div class="text-sm font-bold text-slate-800">${stationName}駅</div>
+                    </div>
 
-        html += `
-            <div class="p-2.5 bg-white border border-indigo-100 rounded-lg shadow-xs space-y-2.5">
-                <div class="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                    <span class="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
-                        <i data-lucide="map-pin" class="w-3.5 h-3.5 text-indigo-600"></i> 選択中の駅
-                    </span>
-                    <button type="button" id="btnCloseStationDetail" class="text-slate-400 hover:text-slate-600 p-0.5" title="閉じる">
-                        <i data-lucide="x" class="w-3.5 h-3.5"></i>
-                    </button>
-                </div>
-                <div>
-                    <div class="text-[10px] font-semibold text-slate-400">${companyName} ・ ${lineName}</div>
-                    <div class="text-sm font-bold text-slate-800">${stationName}駅</div>
-                </div>
+                    <div class="space-y-2 pt-1 border-t border-slate-100">
+                        <!-- 塗り色 -->
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-medium text-slate-600">塗り色</span>
+                            <div class="flex items-center gap-1.5">
+                                <input type="color" id="inputSelectedStationColor" value="${fillColor}" class="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
+                                <button type="button" id="btnClearStationFillColor" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition ${hasFillCustom ? '' : 'opacity-60 cursor-default'}">
+                                    リセット
+                                </button>
+                            </div>
+                        </div>
 
-                <div class="space-y-2 pt-1 border-t border-slate-100">
-                    <!-- 塗り色 -->
-                    <div class="flex items-center justify-between">
-                        <span class="text-[11px] font-medium text-slate-600">塗り色</span>
-                        <div class="flex items-center gap-1.5">
-                            <input type="color" id="inputSelectedStationColor" value="${fillColor}" class="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
-                            <button type="button" id="btnClearStationFillColor" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition ${hasFillCustom ? '' : 'opacity-60 cursor-default'}">
-                                リセット
-                            </button>
+                        <!-- 枠線色 -->
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-medium text-slate-600">枠線色</span>
+                            <div class="flex items-center gap-1.5">
+                                <input type="color" id="inputSelectedStationStrokeColor" value="${strokeColor}" class="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
+                                <button type="button" id="btnClearStationStrokeColor" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition ${hasStrokeCustom ? '' : 'opacity-60 cursor-default'}">
+                                    リセット
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- サイズ -->
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-[11px] font-medium text-slate-600 shrink-0">サイズ</span>
+                            <div class="flex items-center gap-1.5 grow justify-end">
+                                <input type="range" id="rangeSelectedStationRadius" min="2" max="15" value="${radius}" class="w-20 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                                <span class="text-[11px] font-bold text-slate-700 w-3 text-right" id="valSelectedStationRadius">${radius}</span>
+                                <button type="button" id="btnClearStationRadius" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition shrink-0 ${hasRadiusCustom ? '' : 'opacity-60 cursor-default'}">
+                                    リセット
+                                </button>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- 枠線色 -->
-                    <div class="flex items-center justify-between">
-                        <span class="text-[11px] font-medium text-slate-600">枠線色</span>
-                        <div class="flex items-center gap-1.5">
-                            <input type="color" id="inputSelectedStationStrokeColor" value="${strokeColor}" class="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
-                            <button type="button" id="btnClearStationStrokeColor" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition ${hasStrokeCustom ? '' : 'opacity-60 cursor-default'}">
-                                リセット
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- サイズ -->
-                    <div class="flex items-center justify-between gap-2">
-                        <span class="text-[11px] font-medium text-slate-600 shrink-0">サイズ</span>
-                        <div class="flex items-center gap-1.5 grow justify-end">
-                            <input type="range" id="rangeSelectedStationRadius" min="2" max="15" value="${radius}" class="w-20 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
-                            <span class="text-[11px] font-bold text-slate-700 w-3 text-right" id="valSelectedStationRadius">${radius}</span>
-                            <button type="button" id="btnClearStationRadius" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition shrink-0 ${hasRadiusCustom ? '' : 'opacity-60 cursor-default'}">
-                                リセット
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 一括初期化 -->
-                <div class="pt-1.5 border-t border-slate-100 text-right">
-                    <button type="button" id="btnClearSelectedStationAll" class="w-full py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-[10px] rounded font-semibold transition ${hasAnyCustom ? '' : 'opacity-50 cursor-not-allowed'}" ${hasAnyCustom ? '' : 'disabled'}>
-                        駅設定をすべて初期化
-                    </button>
-                </div>
-            </div>
-        `;
-    }
-
-    // 2. 選択中の路線パネル
-    if (currentSelectedLineFeature) {
-        const props = currentSelectedLineFeature.properties || {};
-        const lineName = getLineName(props) || "路線名不明";
-        const companyName = getLineCompany(props) || "事業者不明";
-        const lineKey = getLineKey(props);
-        const currentColor = railwayColorState[lineKey] || railwayConfig.line.color || "#334155";
-        const hasCustomColor = Boolean(railwayColorState[lineKey]);
-
-        html += `
-            <div class="p-2.5 bg-white border border-indigo-100 rounded-lg shadow-xs space-y-2">
-                <div class="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                    <span class="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
-                        <i data-lucide="train" class="w-3.5 h-3.5 text-indigo-600"></i> 選択中の路線
-                    </span>
-                    <button type="button" id="btnCloseLineDetail" class="text-slate-400 hover:text-slate-600 p-0.5" title="閉じる">
-                        <i data-lucide="x" class="w-3.5 h-3.5"></i>
-                    </button>
-                </div>
-                <div>
-                    <div class="text-[10px] font-semibold text-slate-400">${companyName}</div>
-                    <div class="text-sm font-bold text-slate-800">${lineName}</div>
-                </div>
-
-                <div class="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
-                    <label class="text-xs font-medium text-slate-700 flex items-center gap-1.5">
-                        <span>路線の色</span>
-                    </label>
-                    <div class="flex items-center gap-2">
-                        <input type="color" id="inputSelectedLineColor" value="${currentColor}" class="w-7 h-7 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
-                        <button type="button" id="btnClearSelectedLineColor" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition ${hasCustomColor ? '' : 'opacity-60 cursor-default'}">
-                            リセット
+                    <!-- 一括初期化 -->
+                    <div class="pt-1.5 border-t border-slate-100 text-right">
+                        <button type="button" id="btnClearSelectedStationAll" class="w-full py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-[10px] rounded font-semibold transition ${hasAnyCustom ? '' : 'opacity-50 cursor-not-allowed'}" ${hasAnyCustom ? '' : 'disabled'}>
+                            駅設定をすべて初期化
                         </button>
                     </div>
                 </div>
-            </div>
-        `;
+            `;
+        }
+
+        // 2. 選択中の路線パネル
+        if (currentSelectedLineFeature) {
+            const props = currentSelectedLineFeature.properties || {};
+            const lineName = getLineName(props) || "路線名不明";
+            const companyName = getLineCompany(props) || "事業者不明";
+            const lineKey = getLineKey(props);
+            const currentColor = railwayColorState[lineKey] || railwayConfig.line.color || "#334155";
+            const hasCustomColor = Boolean(railwayColorState[lineKey]);
+
+            html += `
+                <div class="p-2.5 bg-white border border-indigo-100 rounded-lg shadow-xs space-y-2">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                        <span class="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                            <i data-lucide="train" class="w-3.5 h-3.5 text-indigo-600"></i> 選択中の路線
+                        </span>
+                        <button type="button" id="btnCloseLineDetail" class="text-slate-400 hover:text-slate-600 p-0.5" title="閉じる">
+                            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+                    <div>
+                        <div class="text-[10px] font-semibold text-slate-400">${companyName}</div>
+                        <div class="text-sm font-bold text-slate-800">${lineName}</div>
+                    </div>
+
+                    <div class="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
+                        <label class="text-xs font-medium text-slate-700 flex items-center gap-1.5">
+                            <span>路線の色</span>
+                        </label>
+                        <div class="flex items-center gap-2">
+                            <input type="color" id="inputSelectedLineColor" value="${currentColor}" class="w-7 h-7 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
+                            <button type="button" id="btnClearSelectedLineColor" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition ${hasCustomColor ? '' : 'opacity-60 cursor-default'}">
+                                リセット
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        container.innerHTML = html;
     }
 
-    container.innerHTML = html;
+    // 鉄道設定の最下部に全個別設定リセットボタンを動的追加
+    let globalResetCard = document.getElementById("railwayGlobalResetCard");
+    if (!globalResetCard) {
+        globalResetCard = document.createElement("div");
+        globalResetCard.id = "railwayGlobalResetCard";
+        globalResetCard.className = "mt-5 pt-3 border-t border-slate-200";
+        parent.appendChild(globalResetCard);
+    }
+
+    const stCustomCount = Object.keys(stationColorState).length;
+    const lnCustomCount = Object.keys(railwayColorState).length;
+    const totalCustomCount = stCustomCount + lnCustomCount;
+
+    globalResetCard.innerHTML = `
+        <button type="button" id="btnClearAllRailwayCustom" class="w-full py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 border ${
+            totalCustomCount > 0 
+                ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200 shadow-sm cursor-pointer' 
+                : 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed opacity-70'
+        }" ${totalCustomCount > 0 ? '' : 'disabled'}>
+            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+            駅・路線の個別設定をすべてリセット ${totalCustomCount > 0 ? `(${totalCustomCount}件)` : ''}
+        </button>
+    `;
+
     lucide.createIcons();
 
     // イベントバインド: 駅
@@ -1825,6 +1849,21 @@ function renderRailwayControlPanel() {
             renderRailwayControlPanel();
         });
     }
+
+    // イベントバインド: 全個別設定一括リセット
+    document.getElementById("btnClearAllRailwayCustom")?.addEventListener("click", async () => {
+        if (totalCustomCount === 0) return;
+        
+        stationColorState = {};
+        railwayColorState = {};
+        currentSelectedStationFeature = null;
+        currentSelectedLineFeature = null;
+
+        saveToLocalStorage();
+        await renderRailwayLayer();
+        renderRailwayControlPanel();
+        showToast("駅・路線のすべての個別設定をリセットしました");
+    });
 }
 
 // 駅ホバー時と路線ホバー／クリック時で処理を自動分岐するイベントハンドラ
