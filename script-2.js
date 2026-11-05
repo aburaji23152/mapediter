@@ -3,7 +3,6 @@ import {
     PREFECTURES,
     BASE_COLORS,
     TILE_LAYERS,
-    LANDLOCKED_PREFS,
     state,
     getFeaturePrefCode,
     getLineName,
@@ -14,6 +13,8 @@ import {
     fetchRailwayData,
     getCenterLatLng,
     getRailwayFeatureStyle,
+    featureStyle,
+    extractBoundaries,
     saveToLocalStorage,
     loadFromLocalStorage,
     isIslandMunicipality,
@@ -21,7 +22,12 @@ import {
     getCityName,
     getCityCode,
     getPrefName,
-    generateMapSvgString
+    showHoverCard,
+    showLoading,
+    showToast,
+    exportStateJson,
+    exportMapImage,
+    exportMapSvg
 } from './script-1.js';
 
 window.onload = async function() {
@@ -50,12 +56,8 @@ function initTabUI() {
     const btnTabPaint = document.getElementById("btnTabPaint");
     const btnTabRailway = document.getElementById("btnTabRailway");
 
-    if (btnTabPaint) {
-        btnTabPaint.addEventListener("click", () => switchTab("paint"));
-    }
-    if (btnTabRailway) {
-        btnTabRailway.addEventListener("click", () => switchTab("railway"));
-    }
+    if (btnTabPaint) btnTabPaint.addEventListener("click", () => switchTab("paint"));
+    if (btnTabRailway) btnTabRailway.addEventListener("click", () => switchTab("railway"));
 
     switchTab("paint");
 }
@@ -523,7 +525,6 @@ function renderCustomPalette() {
 
 function setColor(color) {
     state.selectedColor = color;
-    
     document.querySelectorAll(".color-swatch, .custom-swatch").forEach(btn => {
         const btnColor = btn.getAttribute("data-color");
         if (btnColor && btnColor.toLowerCase() === color.toLowerCase()) {
@@ -880,78 +881,6 @@ function renderGeoJson(data, topologyFeatures) {
     fitToCurrentBounds();
 }
 
-function extractBoundaries(topologyFeatures, selectedPrefSet) {
-    const edgeMap = new Map();
-    const SCALE = 10000;
-
-    topologyFeatures.forEach(feature => {
-        const props = feature.properties || {};
-        const rawCode = props.N03_007 ? String(props.N03_007).trim() : "";
-        const paddedCode = rawCode.length < 5 && !isNaN(rawCode) && rawCode.length > 0 ? rawCode.padStart(5, "0") : rawCode;
-        const prefCode = paddedCode && paddedCode.length >= 2 ? paddedCode.substring(0, 2) : (props.N03_001 || "");
-        const cityCode = paddedCode || "00000";
-        const isWard = Boolean(props.N03_005) || (props.N03_004 && String(props.N03_004).endsWith("区") && props.N03_003 && String(props.N03_003).endsWith("市"));
-        const seireiName = isWard ? (props.N03_003 || "") : null;
-        const countyName = (!isWard && props.N03_003 && String(props.N03_003).endsWith("郡")) ? props.N03_003 : null;
-
-        const meta = { prefCode, cityCode, seireiName, countyName };
-
-        function processRing(ring) {
-            for (let i = 0; i < ring.length - 1; i++) {
-                const p1 = ring[i], p2 = ring[i + 1];
-                const x1 = Math.round(p1[0] * SCALE), y1 = Math.round(p1[1] * SCALE);
-                const x2 = Math.round(p2[0] * SCALE), y2 = Math.round(p2[1] * SCALE);
-                if (x1 === x2 && y1 === y2) continue;
-
-                const k1 = `${x1}_${y1}`, k2 = `${x2}_${y2}`;
-                const key = k1 < k2 ? `${k1}:${k2}` : `${k2}:${k1}`;
-
-                if (!edgeMap.has(key)) edgeMap.set(key, { p1, p2, f1: meta, f2: null });
-                else {
-                    const existing = edgeMap.get(key);
-                    if (existing.f1.cityCode !== meta.cityCode) existing.f2 = meta;
-                }
-            }
-        }
-
-        const geom = feature.geometry;
-        if (geom) {
-            if (geom.type === "Polygon") geom.coordinates.forEach(processRing);
-            else if (geom.type === "MultiPolygon") geom.coordinates.forEach(poly => poly.forEach(processRing));
-        }
-    });
-
-    const coastLines = [], prefLines = [], cityLines = [], countyLines = [], wardLines = [];
-
-    edgeMap.forEach(({ p1, p2, f1, f2 }) => {
-        const f1Selected = f1 && selectedPrefSet.has(f1.prefCode);
-        const f2Selected = f2 && selectedPrefSet.has(f2.prefCode);
-        if (!f1Selected && !f2Selected) return;
-
-        if (f2) {
-            if (f1.prefCode !== f2.prefCode) prefLines.push([p1, p2]);
-            else if (f1.cityCode !== f2.cityCode && f1Selected && f2Selected) {
-                if (f1.seireiName && f2.seireiName && f1.seireiName === f2.seireiName) wardLines.push([p1, p2]);
-                else if (f1.countyName && f2.countyName && f1.countyName === f2.countyName) countyLines.push([p1, p2]);
-                else cityLines.push([p1, p2]);
-            }
-        } else {
-            const activeMeta = f1Selected ? f1 : f2;
-            if (LANDLOCKED_PREFS.has(activeMeta.prefCode)) prefLines.push([p1, p2]);
-            else coastLines.push([p1, p2]);
-        }
-    });
-
-    state.boundaryGeoJsons = {
-        ...state.boundaryGeoJsons,
-        coast: { type: "Feature", geometry: { type: "MultiLineString", coordinates: coastLines } },
-        pref: { type: "Feature", geometry: { type: "MultiLineString", coordinates: prefLines } },
-        city: { type: "Feature", geometry: { type: "MultiLineString", coordinates: cityLines } },
-        county: { type: "Feature", geometry: { type: "MultiLineString", coordinates: countyLines } },
-        ward: { type: "Feature", geometry: { type: "MultiLineString", coordinates: wardLines } }
-    };
-}
-
 function renderBoundaryLayers() {
     ["ward", "county", "city", "pref", "coast"].forEach(type => {
         if (state.boundaryLayers[type]) {
@@ -997,7 +926,7 @@ async function renderRailwayLayer() {
 
     if (!state.boundaryGeoJsons.railway) {
         showLoading(true, "鉄道データを取得中...");
-        const data = await fetchRailwayData(showToast);
+        const data = await fetchRailwayData();
         showLoading(false);
         if (data) {
             state.boundaryGeoJsons.railway = data;
@@ -1527,32 +1456,6 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
     });
 }
 
-function featureStyle(feature) {
-    const cityCode = getCityCode(feature.properties);
-    const prefCode = getFeaturePrefCode(feature);
-    const code = state.mapMode === "pref" ? prefCode : cityCode;
-    const colored = state.colorState[code];
-    const fillColor = colored ? colored : state.defaultLandColor;
-    const fillOpacity = colored ? 1.0 : (state.enableLandOpacity ? state.defaultLandOpacity : 1.0);
-
-    if (state.mapMode === "pref") {
-        return {
-            fillColor: fillColor,
-            fillOpacity: fillOpacity,
-            stroke: true,
-            color: fillColor,
-            weight: 1.5,
-            opacity: fillOpacity
-        };
-    } else {
-        return {
-            fillColor: fillColor,
-            fillOpacity: fillOpacity,
-            stroke: false
-        };
-    }
-}
-
 function handleCityClick(code) {
     if (state.activeTab === "railway") return;
 
@@ -1720,80 +1623,6 @@ function updateUIStats() {
     lucide.createIcons();
 }
 
-function showHoverCard(show, prefName = "", cityName = "", code = "") {
-    const card = document.getElementById("hoverCard");
-    if (!card) return;
-    if (show) {
-        document.getElementById("hoverPref").textContent = prefName;
-        document.getElementById("hoverCity").textContent = cityName;
-        document.getElementById("hoverCode").textContent = code;
-        card.classList.remove("hidden");
-    } else {
-        card.classList.add("hidden");
-    }
-}
-
-function showLoading(show, text = "") {
-    const overlay = document.getElementById("loadingOverlay");
-    if (!overlay) return;
-    if (show) {
-        const textEl = document.getElementById("loadingText");
-        if (textEl) textEl.textContent = text;
-        overlay.classList.remove("hidden");
-    } else {
-        overlay.classList.add("hidden");
-    }
-}
-
-function showToast(message, type = "info") {
-    const container = document.getElementById("toastContainer");
-    if (!container) return;
-    const toast = document.createElement("div");
-    toast.className = `px-4 py-2.5 rounded-xl shadow-lg text-xs font-semibold flex items-center gap-2 pointer-events-auto transition-all transform duration-300 translate-y-2 opacity-0 ${
-        type === 'error' ? 'bg-rose-600 text-white' : 'bg-slate-900 text-white'
-    }`;
-    toast.innerHTML = `
-        <i data-lucide="${type === 'error' ? 'alert-circle' : 'check-circle-2'}" class="w-4 h-4 text-emerald-400"></i>
-        <span>${message}</span>
-    `;
-    container.appendChild(toast);
-    lucide.createIcons();
-
-    setTimeout(() => toast.classList.remove("translate-y-2", "opacity-0"), 10);
-    setTimeout(() => {
-        toast.classList.add("opacity-0", "translate-y-2");
-        setTimeout(() => toast.remove(), 300);
-    }, 3000);
-}
-
-function exportStateJson() {
-    const exportData = {
-        version: "1.0",
-        exportedAt: new Date().toISOString(),
-        mapMode: state.mapMode,
-        colorState: state.colorState,
-        railwayColorState: state.railwayColorState,
-        stationColorState: state.stationColorState,
-        defaultLandColor: state.defaultLandColor,
-        enableLandOpacity: state.enableLandOpacity,
-        defaultLandOpacity: state.defaultLandOpacity,
-        mapBgColor: state.mapBgColor,
-        showBaseMap: state.showBaseMap,
-        selectedTileType: state.selectedTileType,
-        customColors: state.customColors,
-        railwayConfig: state.railwayConfig
-    };
-    const jsonStr = JSON.stringify(exportData, null, 2);
-    const blob = new Blob([jsonStr], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `japan_map_color_${new Date().toISOString().slice(0,10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast("設定をJSONに保存しました");
-}
-
 function importStateJson(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -1840,88 +1669,4 @@ function importStateJson(e) {
     };
     reader.readAsText(file);
     e.target.value = "";
-}
-
-function exportMapImage() {
-    showLoading(true, "ズーム10相当のPNG画像を生成中...");
-
-    setTimeout(() => {
-        try {
-            const svgString = generateMapSvgString();
-            if (!svgString) {
-                showLoading(false);
-                showToast("画像の生成に失敗しました", "error");
-                return;
-            }
-
-            const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
-            const url = URL.createObjectURL(blob);
-            const img = new Image();
-
-            img.onload = () => {
-                const canvas = document.createElement("canvas");
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext("2d");
-                
-                ctx.fillStyle = state.mapBgColor;
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(img, 0, 0);
-
-                const link = document.createElement("a");
-                const labelName = state.mapMode === "pref" ? "都道府県版" : getSelectedPrefLabel(state.selectedPrefCodes);
-                link.download = `japan_map_${labelName}_z10_${new Date().toISOString().slice(0,10)}.png`;
-                link.href = canvas.toDataURL("image/png");
-                link.click();
-
-                URL.revokeObjectURL(url);
-                showLoading(false);
-                showToast("高精細PNG画像を保存しました");
-            };
-
-            img.onerror = (err) => {
-                console.error("PNG変換エラー:", err);
-                URL.revokeObjectURL(url);
-                showLoading(false);
-                showToast("PNG画像の生成に失敗しました", "error");
-            };
-
-            img.src = url;
-        } catch (err) {
-            console.error(err);
-            showLoading(false);
-            showToast("画像の保存処理に失敗しました", "error");
-        }
-    }, 50);
-}
-
-function exportMapSvg() {
-    showLoading(true, "ズーム10相当のSVGベクター画像を生成中...");
-
-    setTimeout(() => {
-        try {
-            const svgString = generateMapSvgString();
-            if (!svgString) {
-                showLoading(false);
-                showToast("データが読み込まれていません", "error");
-                return;
-            }
-
-            const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            const labelName = state.mapMode === "pref" ? "都道府県版" : getSelectedPrefLabel(state.selectedPrefCodes);
-            a.download = `japan_map_${labelName}_z10_${new Date().toISOString().slice(0,10)}.svg`;
-            a.click();
-            URL.revokeObjectURL(url);
-
-            showLoading(false);
-            showToast("高精細SVGベクター画像を保存しました");
-        } catch (err) {
-            console.error("SVG export error:", err);
-            showLoading(false);
-            showToast("SVG画像の生成に失敗しました", "error");
-        }
-    }, 50);
 }
