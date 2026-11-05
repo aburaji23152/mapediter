@@ -41,7 +41,7 @@ export const TILE_LAYERS = {
 
 export const LANDLOCKED_PREFS = new Set(["09", "10", "11", "19", "20", "21", "25", "29"]);
 
-// LocalStorage キー定数
+// LocalStorage キー
 export const STORAGE_KEY_MAP_MODE = "japan_map_mode_v1";
 export const STORAGE_KEY_COLOR_STATE = "japan_map_color_state_v1";
 export const STORAGE_KEY_RAILWAY_COLOR_STATE = "japan_map_railway_color_state_v1";
@@ -59,7 +59,7 @@ export const STORAGE_KEY_SHOW_BASEMAP = "japan_map_show_basemap_v1";
 export const STORAGE_KEY_TILE_TYPE = "japan_map_tile_type_v1";
 export const STORAGE_KEY_CUSTOM_COLORS = "japan_map_custom_colors_v1";
 
-// --- アプリケーション一括状態オブジェクト ---
+// --- 一括状態オブジェクト ---
 export const state = {
     customColors: [
         "#e0e7ff", "#ffe4e6", "#dcfce7", "#fef9c3", "#f3e8ff", "#fce7f3",
@@ -100,20 +100,8 @@ export const state = {
     },
     railwayConfig: {
         show: false,
-        line: {
-            color: "#334155",
-            weight: 2.0,
-            style: "solid",
-            opacity: 0.95
-        },
-        station: {
-            show: true,
-            color: "#1e293b",
-            radius: 5,
-            strokeColor: "#ffffff",
-            strokeWeight: 2,
-            opacity: 0.95
-        }
+        line: { color: "#334155", weight: 2.0, style: "solid", opacity: 0.95 },
+        station: { show: true, color: "#1e293b", radius: 5, strokeColor: "#ffffff", strokeWeight: 2, opacity: 0.95 }
     },
     boundaryGeoJsons: { coast: null, pref: null, city: null, county: null, ward: null, railway: null },
     boundaryLayers: { coast: null, pref: null, city: null, county: null, ward: null, railway: null },
@@ -123,7 +111,7 @@ export const state = {
     isRefreshing: false
 };
 
-// ユーティリティ・補助関数
+// ユーティリティ・プロパティ取得
 export function getFeaturePrefCode(feature) {
     const props = feature.properties || {};
     if (props.N03_007) {
@@ -172,64 +160,58 @@ export function getStationKey(props) {
     return `${company || 'COMP_UNKNOWN'}::${line || 'LINE_UNKNOWN'}::${st}`;
 }
 
-export async function fetchRailwayData(showToast) {
-    if (state.railwayGeoJsonCache) return state.railwayGeoJsonCache;
+export function getCityName(props) {
+    if (!props) return "不明";
+    const county = props.N03_003 ? props.N03_003 : "";
+    const city = props.N03_004 ? props.N03_004 : (props.N03_001 || "");
+    return county ? `${county}${city}` : city;
+}
 
-    try {
-        console.log("鉄道データ (路線区間・駅) の取得中...");
+export function getCityCode(props) {
+    if (!props) return "00000";
+    const raw = props.N03_007 || props.N03_004 || "00000";
+    const str = String(raw).trim();
+    return str.length < 5 && !isNaN(str) ? str.padStart(5, "0") : str;
+}
 
-        const fetchFile = async (path) => {
-            try {
-                const res = await fetch(path);
-                if (!res.ok) return null;
-                return await res.json();
-            } catch (e) {
-                return null;
-            }
-        };
+export function getPrefName(code) {
+    if (code === "ALL") return "全国（日本全体）";
+    const pref = PREFECTURES.find(p => p.code === code);
+    return pref ? pref.name : "";
+}
 
-        const [railroadSection, stationData] = await Promise.all([
-            fetchFile("./rail_data/N02-25_RailroadSection.geojson"),
-            fetchFile("./rail_data/N02-25_Station.geojson")
-        ]);
+export function getSelectedPrefLabel(codes) {
+    if (!codes || codes.includes("ALL") || codes.length === 47 || codes.length === 0) return "全国（日本全体）";
+    if (codes.length === 1) return getPrefName(codes[0]);
+    const names = codes.map(c => getPrefName(c));
+    return codes.length <= 2 ? names.join("・") : `${names[0]}・${names[1]} 外${codes.length - 2}県`;
+}
 
-        let combinedFeatures = [];
-        if (railroadSection && railroadSection.features) {
-            combinedFeatures.push(...railroadSection.features);
-        }
-        if (stationData && stationData.features) {
-            combinedFeatures.push(...stationData.features);
-        }
+export function isIslandMunicipality(code, props = null) {
+    const strCode = String(code).trim();
+    const numCode = parseInt(strCode, 10);
+    let propText = props ? Object.values(props).map(v => (v !== null && v !== undefined) ? String(v) : "").join(" ") : "";
 
-        if (combinedFeatures.length === 0) {
-            const fallback = await fetchFile("./rail_data/2026_1031.geojson");
-            if (fallback && fallback.features) {
-                combinedFeatures = fallback.features;
-            }
-        }
-
-        if (combinedFeatures.length === 0) {
-            throw new Error("鉄道データの読み込みに失敗しました。");
-        }
-
-        state.railwayGeoJsonCache = {
-            type: "FeatureCollection",
-            features: combinedFeatures
-        };
-        console.log("鉄道データの読み込み完了", combinedFeatures.length, "件");
-        return state.railwayGeoJsonCache;
-
-    } catch (e) {
-        console.warn("鉄道データ取得エラー:", e);
-        if (showToast) showToast("鉄道データの取得に失敗しました", "error");
-        return null;
+    const isTokyo = strCode.startsWith("13") || propText.includes("東京都");
+    if (isTokyo) {
+        if (propText.includes("支庁") || (!isNaN(numCode) && numCode >= 13361 && numCode <= 13421)) return "13";
+        const islandKeywords = ["大島", "利島", "新島", "神津島", "三宅", "御蔵島", "八丈", "青ヶ島", "小笠原", "父島", "母島", "硫黄島", "鳥島"];
+        if (islandKeywords.some(k => propText.includes(k))) return "13";
+        if (["13303", "13305", "13307", "13308"].includes(strCode)) return null;
+        if (!isNaN(numCode) && numCode >= 13101 && numCode <= 13229) return null;
+        return "13";
     }
+
+    if (strCode === "46213" || strCode === "46222" || strCode === "46303" || strCode === "46304" || (!isNaN(numCode) && numCode >= 46500 && numCode <= 46599)) return "46";
+    const okinawaIslands = ["47207", "47214", "47315", "47353", "47354", "47355", "47357", "47358", "47359", "47360", "47361", "47375", "47381", "47382"];
+    if (okinawaIslands.includes(strCode)) return "47";
+
+    return null;
 }
 
 export function getCenterLatLng(coords) {
     if (!coords || coords.length === 0) return [0, 0];
     let sumLon = 0, sumLat = 0, count = 0;
-    
     function extract(c) {
         if (typeof c[0] === 'number') {
             sumLon += c[0];
@@ -243,10 +225,81 @@ export function getCenterLatLng(coords) {
     return count > 0 ? [sumLat / count, sumLon / count] : [0, 0];
 }
 
+// 境界線トポロジー抽出計算
+export function extractBoundaries(topologyFeatures, selectedPrefSet) {
+    const edgeMap = new Map();
+    const SCALE = 10000;
+
+    topologyFeatures.forEach(feature => {
+        const props = feature.properties || {};
+        const rawCode = props.N03_007 ? String(props.N03_007).trim() : "";
+        const paddedCode = rawCode.length < 5 && !isNaN(rawCode) && rawCode.length > 0 ? rawCode.padStart(5, "0") : rawCode;
+        const prefCode = paddedCode && paddedCode.length >= 2 ? paddedCode.substring(0, 2) : (props.N03_001 || "");
+        const cityCode = paddedCode || "00000";
+        const isWard = Boolean(props.N03_005) || (props.N03_004 && String(props.N03_004).endsWith("区") && props.N03_003 && String(props.N03_003).endsWith("市"));
+        const seireiName = isWard ? (props.N03_003 || "") : null;
+        const countyName = (!isWard && props.N03_003 && String(props.N03_003).endsWith("郡")) ? props.N03_003 : null;
+
+        const meta = { prefCode, cityCode, seireiName, countyName };
+
+        function processRing(ring) {
+            for (let i = 0; i < ring.length - 1; i++) {
+                const p1 = ring[i], p2 = ring[i + 1];
+                const x1 = Math.round(p1[0] * SCALE), y1 = Math.round(p1[1] * SCALE);
+                const x2 = Math.round(p2[0] * SCALE), y2 = Math.round(p2[1] * SCALE);
+                if (x1 === x2 && y1 === y2) continue;
+
+                const k1 = `${x1}_${y1}`, k2 = `${x2}_${y2}`;
+                const key = k1 < k2 ? `${k1}:${k2}` : `${k2}:${k1}`;
+
+                if (!edgeMap.has(key)) edgeMap.set(key, { p1, p2, f1: meta, f2: null });
+                else {
+                    const existing = edgeMap.get(key);
+                    if (existing.f1.cityCode !== meta.cityCode) existing.f2 = meta;
+                }
+            }
+        }
+
+        const geom = feature.geometry;
+        if (geom) {
+            if (geom.type === "Polygon") geom.coordinates.forEach(processRing);
+            else if (geom.type === "MultiPolygon") geom.coordinates.forEach(poly => poly.forEach(processRing));
+        }
+    });
+
+    const coastLines = [], prefLines = [], cityLines = [], countyLines = [], wardLines = [];
+
+    edgeMap.forEach(({ p1, p2, f1, f2 }) => {
+        const f1Selected = f1 && selectedPrefSet.has(f1.prefCode);
+        const f2Selected = f2 && selectedPrefSet.has(f2.prefCode);
+        if (!f1Selected && !f2Selected) return;
+
+        if (f2) {
+            if (f1.prefCode !== f2.prefCode) prefLines.push([p1, p2]);
+            else if (f1.cityCode !== f2.cityCode && f1Selected && f2Selected) {
+                if (f1.seireiName && f2.seireiName && f1.seireiName === f2.seireiName) wardLines.push([p1, p2]);
+                else if (f1.countyName && f2.countyName && f1.countyName === f2.countyName) countyLines.push([p1, p2]);
+                else cityLines.push([p1, p2]);
+            }
+        } else {
+            const activeMeta = f1Selected ? f1 : f2;
+            if (LANDLOCKED_PREFS.has(activeMeta.prefCode)) prefLines.push([p1, p2]);
+            else coastLines.push([p1, p2]);
+        }
+    });
+
+    state.boundaryGeoJsons = {
+        ...state.boundaryGeoJsons,
+        coast: { type: "Feature", geometry: { type: "MultiLineString", coordinates: coastLines } },
+        pref: { type: "Feature", geometry: { type: "MultiLineString", coordinates: prefLines } },
+        city: { type: "Feature", geometry: { type: "MultiLineString", coordinates: cityLines } },
+        county: { type: "Feature", geometry: { type: "MultiLineString", coordinates: countyLines } },
+        ward: { type: "Feature", geometry: { type: "MultiLineString", coordinates: wardLines } }
+    };
+}
+
 export function getRailwayFeatureStyle(feature) {
-    if (!state.railwayConfig.show) {
-        return { opacity: 0, weight: 0 };
-    }
+    if (!state.railwayConfig.show) return { opacity: 0, weight: 0 };
 
     const geomType = feature.geometry?.type;
     const isStation = geomType === "Point" || Boolean(getStationName(feature.properties));
@@ -285,6 +338,74 @@ export function getRailwayFeatureStyle(feature) {
     }
 }
 
+export function featureStyle(feature) {
+    const cityCode = getCityCode(feature.properties);
+    const prefCode = getFeaturePrefCode(feature);
+    const code = state.mapMode === "pref" ? prefCode : cityCode;
+    const colored = state.colorState[code];
+    const fillColor = colored ? colored : state.defaultLandColor;
+    const fillOpacity = colored ? 1.0 : (state.enableLandOpacity ? state.defaultLandOpacity : 1.0);
+
+    if (state.mapMode === "pref") {
+        return {
+            fillColor: fillColor,
+            fillOpacity: fillOpacity,
+            stroke: true,
+            color: fillColor,
+            weight: 1.5,
+            opacity: fillOpacity
+        };
+    } else {
+        return {
+            fillColor: fillColor,
+            fillOpacity: fillOpacity,
+            stroke: false
+        };
+    }
+}
+
+// データ非同期取得
+export async function fetchRailwayData() {
+    if (state.railwayGeoJsonCache) return state.railwayGeoJsonCache;
+
+    try {
+        console.log("鉄道データ (路線区間・駅) の取得中...");
+        const fetchFile = async (path) => {
+            try {
+                const res = await fetch(path);
+                if (!res.ok) return null;
+                return await res.json();
+            } catch (e) {
+                return null;
+            }
+        };
+
+        const [railroadSection, stationData] = await Promise.all([
+            fetchFile("./rail_data/N02-25_RailroadSection.geojson"),
+            fetchFile("./rail_data/N02-25_Station.geojson")
+        ]);
+
+        let combinedFeatures = [];
+        if (railroadSection && railroadSection.features) combinedFeatures.push(...railroadSection.features);
+        if (stationData && stationData.features) combinedFeatures.push(...stationData.features);
+
+        if (combinedFeatures.length === 0) {
+            const fallback = await fetchFile("./rail_data/2026_1031.geojson");
+            if (fallback && fallback.features) combinedFeatures = fallback.features;
+        }
+
+        if (combinedFeatures.length === 0) throw new Error("鉄道データの読み込みに失敗しました。");
+
+        state.railwayGeoJsonCache = { type: "FeatureCollection", features: combinedFeatures };
+        return state.railwayGeoJsonCache;
+    } catch (e) {
+        console.warn("鉄道データ取得エラー:", e);
+        showToast("鉄道データの取得に失敗しました", "error");
+        return null;
+    }
+}
+
+// LocalStorage 保存・復元
 export function saveToLocalStorage() {
     try {
         localStorage.setItem(STORAGE_KEY_MAP_MODE, state.mapMode);
@@ -357,55 +478,54 @@ export function loadFromLocalStorage() {
     }
 }
 
-export function isIslandMunicipality(code, props = null) {
-    const strCode = String(code).trim();
-    const numCode = parseInt(strCode, 10);
-    let propText = props ? Object.values(props).map(v => (v !== null && v !== undefined) ? String(v) : "").join(" ") : "";
-
-    const isTokyo = strCode.startsWith("13") || propText.includes("東京都");
-    if (isTokyo) {
-        if (propText.includes("支庁") || (!isNaN(numCode) && numCode >= 13361 && numCode <= 13421)) return "13";
-        const islandKeywords = ["大島", "利島", "新島", "神津島", "三宅", "御蔵島", "八丈", "青ヶ島", "小笠原", "父島", "母島", "硫黄島", "鳥島"];
-        if (islandKeywords.some(k => propText.includes(k))) return "13";
-        if (["13303", "13305", "13307", "13308"].includes(strCode)) return null;
-        if (!isNaN(numCode) && numCode >= 13101 && numCode <= 13229) return null;
-        return "13";
+// 汎用UI表示コンポーネント関数
+export function showHoverCard(show, prefName = "", cityName = "", code = "") {
+    const card = document.getElementById("hoverCard");
+    if (!card) return;
+    if (show) {
+        document.getElementById("hoverPref").textContent = prefName;
+        document.getElementById("hoverCity").textContent = cityName;
+        document.getElementById("hoverCode").textContent = code;
+        card.classList.remove("hidden");
+    } else {
+        card.classList.add("hidden");
     }
-
-    if (strCode === "46213" || strCode === "46222" || strCode === "46303" || strCode === "46304" || (!isNaN(numCode) && numCode >= 46500 && numCode <= 46599)) return "46";
-    const okinawaIslands = ["47207", "47214", "47315", "47353", "47354", "47355", "47357", "47358", "47359", "47360", "47361", "47375", "47381", "47382"];
-    if (okinawaIslands.includes(strCode)) return "47";
-
-    return null;
 }
 
-export function getSelectedPrefLabel(codes) {
-    if (!codes || codes.includes("ALL") || codes.length === 47 || codes.length === 0) return "全国（日本全体）";
-    if (codes.length === 1) return getPrefName(codes[0]);
-    const names = codes.map(c => getPrefName(c));
-    return codes.length <= 2 ? names.join("・") : `${names[0]}・${names[1]} 外${codes.length - 2}県`;
+export function showLoading(show, text = "") {
+    const overlay = document.getElementById("loadingOverlay");
+    if (!overlay) return;
+    if (show) {
+        const textEl = document.getElementById("loadingText");
+        if (textEl) textEl.textContent = text;
+        overlay.classList.remove("hidden");
+    } else {
+        overlay.classList.add("hidden");
+    }
 }
 
-export function getCityName(props) {
-    if (!props) return "不明";
-    const county = props.N03_003 ? props.N03_003 : "";
-    const city = props.N03_004 ? props.N03_004 : (props.N03_001 || "");
-    return county ? `${county}${city}` : city;
+export function showToast(message, type = "info") {
+    const container = document.getElementById("toastContainer");
+    if (!container) return;
+    const toast = document.createElement("div");
+    toast.className = `px-4 py-2.5 rounded-xl shadow-lg text-xs font-semibold flex items-center gap-2 pointer-events-auto transition-all transform duration-300 translate-y-2 opacity-0 ${
+        type === 'error' ? 'bg-rose-600 text-white' : 'bg-slate-900 text-white'
+    }`;
+    toast.innerHTML = `
+        <i data-lucide="${type === 'error' ? 'alert-circle' : 'check-circle-2'}" class="w-4 h-4 text-emerald-400"></i>
+        <span>${message}</span>
+    `;
+    container.appendChild(toast);
+    lucide.createIcons();
+
+    setTimeout(() => toast.classList.remove("translate-y-2", "opacity-0"), 10);
+    setTimeout(() => {
+        toast.classList.add("opacity-0", "translate-y-2");
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
 }
 
-export function getCityCode(props) {
-    if (!props) return "00000";
-    const raw = props.N03_007 || props.N03_004 || "00000";
-    const str = String(raw).trim();
-    return str.length < 5 && !isNaN(str) ? str.padStart(5, "0") : str;
-}
-
-export function getPrefName(code) {
-    if (code === "ALL") return "全国（日本全体）";
-    const pref = PREFECTURES.find(p => p.code === code);
-    return pref ? pref.name : "";
-}
-
+// SVG生成・Mercator計算
 export function geoToMercator(lon, lat) {
     const x = lon * Math.PI / 180;
     const rad = Math.max(-85, Math.min(85, lat)) * Math.PI / 180;
@@ -584,4 +704,117 @@ ${boundarySvgHtml}  </g>
   <g id="railways">
 ${railwaySvgHtml}  </g>
 </svg>`;
+}
+
+// エクスポート・インポート計算ロジック
+export function exportStateJson() {
+    const exportData = {
+        version: "1.0",
+        exportedAt: new Date().toISOString(),
+        mapMode: state.mapMode,
+        colorState: state.colorState,
+        railwayColorState: state.railwayColorState,
+        stationColorState: state.stationColorState,
+        defaultLandColor: state.defaultLandColor,
+        enableLandOpacity: state.enableLandOpacity,
+        defaultLandOpacity: state.defaultLandOpacity,
+        mapBgColor: state.mapBgColor,
+        showBaseMap: state.showBaseMap,
+        selectedTileType: state.selectedTileType,
+        customColors: state.customColors,
+        railwayConfig: state.railwayConfig
+    };
+    const jsonStr = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `japan_map_color_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("設定をJSONに保存しました");
+}
+
+export function exportMapImage() {
+    showLoading(true, "ズーム10相当のPNG画像を生成中...");
+
+    setTimeout(() => {
+        try {
+            const svgString = generateMapSvgString();
+            if (!svgString) {
+                showLoading(false);
+                showToast("画像の生成に失敗しました", "error");
+                return;
+            }
+
+            const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const img = new Image();
+
+            img.onload = () => {
+                const canvas = document.createElement("canvas");
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext("2d");
+                
+                ctx.fillStyle = state.mapBgColor;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0);
+
+                const link = document.createElement("a");
+                const labelName = state.mapMode === "pref" ? "都道府県版" : getSelectedPrefLabel(state.selectedPrefCodes);
+                link.download = `japan_map_${labelName}_z10_${new Date().toISOString().slice(0,10)}.png`;
+                link.href = canvas.toDataURL("image/png");
+                link.click();
+
+                URL.revokeObjectURL(url);
+                showLoading(false);
+                showToast("高精細PNG画像を保存しました");
+            };
+
+            img.onerror = (err) => {
+                console.error("PNG変換エラー:", err);
+                URL.revokeObjectURL(url);
+                showLoading(false);
+                showToast("PNG画像の生成に失敗しました", "error");
+            };
+
+            img.src = url;
+        } catch (err) {
+            console.error(err);
+            showLoading(false);
+            showToast("画像の保存処理に失敗しました", "error");
+        }
+    }, 50);
+}
+
+export function exportMapSvg() {
+    showLoading(true, "ズーム10相当のSVGベクター画像を生成中...");
+
+    setTimeout(() => {
+        try {
+            const svgString = generateMapSvgString();
+            if (!svgString) {
+                showLoading(false);
+                showToast("データが読み込まれていません", "error");
+                return;
+            }
+
+            const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            const labelName = state.mapMode === "pref" ? "都道府県版" : getSelectedPrefLabel(state.selectedPrefCodes);
+            a.download = `japan_map_${labelName}_z10_${new Date().toISOString().slice(0,10)}.svg`;
+            a.click();
+            URL.revokeObjectURL(url);
+
+            showLoading(false);
+            showToast("高精細SVGベクター画像を保存しました");
+        } catch (err) {
+            console.error("SVG export error:", err);
+            showLoading(false);
+            showToast("SVG画像の生成に失敗しました", "error");
+        }
+    }, 50);
 }
