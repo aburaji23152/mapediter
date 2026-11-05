@@ -1601,7 +1601,7 @@ function updateStationHighlight(targetStationKey, isHover) {
     });
 }
 
-// 鉄道操作パネル（選択中路線／駅の情報表示＋各項目リセット付色・サイズ変更）の描画更新
+// 鉄道操作パネル（選択中路線／駅の情報表示＋常時リセット付色・サイズ変更）の描画更新
 function renderRailwayControlPanel() {
     let container = document.getElementById("railwaySelectedControlCard");
     const parent = document.getElementById("tabContentRailway");
@@ -1651,7 +1651,7 @@ function renderRailwayControlPanel() {
                     <span class="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
                         <i data-lucide="map-pin" class="w-3.5 h-3.5 text-indigo-600"></i> 選択中の駅
                     </span>
-                    <button type="button" id="btnCloseStationDetail" class="text-slate-400 hover:text-slate-600 p-0.5">
+                    <button type="button" id="btnCloseStationDetail" class="text-slate-400 hover:text-slate-600 p-0.5" title="閉じる">
                         <i data-lucide="x" class="w-3.5 h-3.5"></i>
                     </button>
                 </div>
@@ -1661,39 +1661,47 @@ function renderRailwayControlPanel() {
                 </div>
 
                 <div class="space-y-2 pt-1 border-t border-slate-100">
+                    <!-- 塗り色 -->
                     <div class="flex items-center justify-between">
                         <span class="text-[11px] font-medium text-slate-600">塗り色</span>
                         <div class="flex items-center gap-1.5">
                             <input type="color" id="inputSelectedStationColor" value="${fillColor}" class="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
-                            ${hasFillCustom ? `<button type="button" id="btnClearStationFillColor" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition">リセット</button>` : ''}
+                            <button type="button" id="btnClearStationFillColor" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition ${hasFillCustom ? '' : 'opacity-60 cursor-default'}">
+                                リセット
+                            </button>
                         </div>
                     </div>
 
+                    <!-- 枠線色 -->
                     <div class="flex items-center justify-between">
                         <span class="text-[11px] font-medium text-slate-600">枠線色</span>
                         <div class="flex items-center gap-1.5">
                             <input type="color" id="inputSelectedStationStrokeColor" value="${strokeColor}" class="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
-                            ${hasStrokeCustom ? `<button type="button" id="btnClearStationStrokeColor" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition">リセット</button>` : ''}
+                            <button type="button" id="btnClearStationStrokeColor" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition ${hasStrokeCustom ? '' : 'opacity-60 cursor-default'}">
+                                リセット
+                            </button>
                         </div>
                     </div>
 
+                    <!-- サイズ -->
                     <div class="flex items-center justify-between gap-2">
                         <span class="text-[11px] font-medium text-slate-600 shrink-0">サイズ</span>
                         <div class="flex items-center gap-1.5 grow justify-end">
                             <input type="range" id="rangeSelectedStationRadius" min="2" max="15" value="${radius}" class="w-20 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
                             <span class="text-[11px] font-bold text-slate-700 w-3 text-right" id="valSelectedStationRadius">${radius}</span>
-                            ${hasRadiusCustom ? `<button type="button" id="btnClearStationRadius" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition shrink-0">リセット</button>` : ''}
+                            <button type="button" id="btnClearStationRadius" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition shrink-0 ${hasRadiusCustom ? '' : 'opacity-60 cursor-default'}">
+                                リセット
+                            </button>
                         </div>
                     </div>
                 </div>
 
-                ${hasAnyCustom ? `
-                    <div class="pt-1.5 border-t border-slate-100 text-right">
-                        <button type="button" id="btnClearSelectedStationAll" class="w-full py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-[10px] rounded font-semibold transition">
-                            駅設定をすべて初期化
-                        </button>
-                    </div>
-                ` : ''}
+                <!-- 一括初期化 -->
+                <div class="pt-1.5 border-t border-slate-100 text-right">
+                    <button type="button" id="btnClearSelectedStationAll" class="w-full py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-[10px] rounded font-semibold transition ${hasAnyCustom ? '' : 'opacity-50 cursor-not-allowed'}" ${hasAnyCustom ? '' : 'disabled'}>
+                        駅設定をすべて初期化
+                    </button>
+                </div>
             </div>
         `;
     }
@@ -1713,7 +1721,7 @@ function renderRailwayControlPanel() {
                     <span class="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
                         <i data-lucide="train" class="w-3.5 h-3.5 text-indigo-600"></i> 選択中の路線
                     </span>
-                    <button type="button" id="btnCloseLineDetail" class="text-slate-400 hover:text-slate-600 p-0.5">
+                    <button type="button" id="btnCloseLineDetail" class="text-slate-400 hover:text-slate-600 p-0.5" title="閉じる">
                         <i data-lucide="x" class="w-3.5 h-3.5"></i>
                     </button>
                 </div>
@@ -1728,11 +1736,9 @@ function renderRailwayControlPanel() {
                     </label>
                     <div class="flex items-center gap-2">
                         <input type="color" id="inputSelectedLineColor" value="${currentColor}" class="w-7 h-7 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
-                        ${hasCustomColor ? `
-                            <button type="button" id="btnClearSelectedLineColor" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition">
-                                リセット
-                            </button>
-                        ` : ''}
+                        <button type="button" id="btnClearSelectedLineColor" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition ${hasCustomColor ? '' : 'opacity-60 cursor-default'}">
+                            リセット
+                        </button>
                     </div>
                 </div>
             </div>
