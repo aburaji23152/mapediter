@@ -355,7 +355,7 @@ function initPrefModalUI() {
             state.mapMode = state.pendingMapMode;
             state.colorState = {};
             state.pendingMapMode = null;
-            document.getElementById("modeConfirmModal")?.classList.remove("hidden");
+            document.getElementById("modeConfirmModal")?.classList.add("hidden");
             updateModeUI();
             updateHeaderPrefButton();
             saveToLocalStorage();
@@ -971,14 +971,16 @@ async function renderRailwayLayer() {
         const stKey = getStationKey(props);
         const stCustom = stKey ? state.stationColorState[stKey] : null;
 
-        // 個別枠線色の決定（駅個別設定 > スタイル関数で計算された色）
+        // 全体設定がOFF等でstStyle.weightが0であっても、枠線を確実に描画させる設定
         const strokeColor = (stCustom && stCustom.strokeColor) 
             ? stCustom.strokeColor 
-            : (stStyle.color || state.railwayConfig.station.strokeColor || "#ffffff");
+            : (stStyle.color && stStyle.color !== "none" ? stStyle.color : (state.railwayConfig.station.strokeColor || "#ffffff"));
             
-        const strokeWeight = (stCustom && stCustom.strokeWeight !== undefined) 
+        let strokeWeight = (stCustom && stCustom.strokeWeight !== undefined) 
             ? stCustom.strokeWeight 
-            : (stStyle.weight !== undefined ? stStyle.weight : (state.railwayConfig.station.strokeWeight || 2));
+            : (stStyle.weight !== undefined && stStyle.weight > 0 ? stStyle.weight : (state.railwayConfig.station.strokeWeight || 2));
+        
+        if (!strokeWeight || strokeWeight <= 0) strokeWeight = 2;
 
         const hitCircle = L.circleMarker(latlng, {
             pane: "railwayPane",
@@ -995,6 +997,7 @@ async function renderRailwayLayer() {
             radius: stStyle.radius || 5,
             fillColor: stStyle.fillColor || "#1e293b",
             color: strokeColor,
+            stroke: true,
             weight: strokeWeight,
             opacity: stStyle.opacity || 0.95,
             fillOpacity: stStyle.opacity || 0.95,
@@ -1162,16 +1165,19 @@ function updateStationHighlight(targetStationKey, isHover) {
 
                     const strokeColor = stCustom.strokeColor 
                         ? stCustom.strokeColor 
-                        : (baseStyle.color || state.railwayConfig.station.strokeColor || "#ffffff");
+                        : (baseStyle.color && baseStyle.color !== "none" ? baseStyle.color : (state.railwayConfig.station.strokeColor || "#ffffff"));
 
-                    const strokeWeight = stCustom.strokeWeight !== undefined 
+                    let strokeWeight = stCustom.strokeWeight !== undefined 
                         ? stCustom.strokeWeight 
-                        : (baseStyle.weight !== undefined ? baseStyle.weight : (state.railwayConfig.station.strokeWeight || 2));
+                        : (baseStyle.weight !== undefined && baseStyle.weight > 0 ? baseStyle.weight : (state.railwayConfig.station.strokeWeight || 2));
+
+                    if (!strokeWeight || strokeWeight <= 0) strokeWeight = 2;
 
                     if (isHover) {
                         target.setStyle({
                             fillColor: "#ef4444",
                             color: "#ffffff",
+                            stroke: true,
                             weight: strokeWeight + 1,
                             fillOpacity: 1.0
                         });
@@ -1180,6 +1186,7 @@ function updateStationHighlight(targetStationKey, isHover) {
                             radius: stCustom.radius !== undefined ? stCustom.radius : (baseStyle.radius || 5),
                             fillColor: stCustom.color || baseStyle.fillColor || "#1e293b",
                             color: strokeColor,
+                            stroke: true,
                             weight: strokeWeight,
                             opacity: baseStyle.opacity || 0.95,
                             fillOpacity: baseStyle.opacity || 0.95
@@ -1528,6 +1535,7 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
                     displayTarget.setStyle({
                         fillColor: "#ef4444",
                         color: "#ffffff",
+                        stroke: true,
                         weight: ((displayTarget.options.weight || 2) + 1),
                         fillOpacity: 1.0
                     });
