@@ -942,11 +942,33 @@ async function renderRailwayLayer() {
     const lineLayerGroup = L.layerGroup();
     const stationLayerGroup = L.layerGroup();
 
+    // 駅の表示・非表示判定関数 (1. 駅個別 -> 2. 路線個別 -> 3. 全体設定)
+    function isStationVisible(feature) {
+        const props = feature.properties || {};
+        const stKey = getStationKey(props);
+        const lineKey = getLineKey(props);
+
+        // 1. 駅個別の表示設定
+        const stCustom = stKey ? state.stationColorState[stKey] : null;
+        if (stCustom && stCustom.show !== undefined) {
+            return stCustom.show;
+        }
+
+        // 2. 路線個別の所属駅表示設定
+        const lineCustom = lineKey ? state.railwayColorState[lineKey] : null;
+        if (lineCustom && lineCustom.showStations !== undefined) {
+            return lineCustom.showStations;
+        }
+
+        // 3. デフォルト（全体設定）
+        return state.railwayConfig.station.show !== false;
+    }
+
     function createStationGroup(latlng, feature) {
         const group = L.layerGroup();
         const stStyle = getRailwayFeatureStyle(feature);
 
-        if (state.railwayConfig.station.show === false) return group;
+        if (!isStationVisible(feature)) return group;
         
         const hitCircle = L.circleMarker(latlng, {
             pane: "railwayPane",
@@ -994,7 +1016,8 @@ async function renderRailwayLayer() {
             const baseStyle = getRailwayFeatureStyle(feature);
             const lineKey = getLineKey(props);
 
-            const coloredHex = lineKey ? state.railwayColorState[lineKey] : null;
+            const lineCustom = lineKey ? state.railwayColorState[lineKey] : null;
+            const coloredHex = lineCustom ? (typeof lineCustom === 'string' ? lineCustom : lineCustom.color) : null;
             const isSelected = Boolean(coloredHex);
 
             const hitLine = L.geoJSON(feature, {
@@ -1047,20 +1070,18 @@ async function renderRailwayLayer() {
         }
     });
 
-    if (state.railwayConfig.station.show !== false) {
-        features.forEach(f => {
-            const isStation = Boolean(getStationName(f.properties));
-            const isLineGeom = f.geometry?.type === "LineString" || f.geometry?.type === "MultiLineString";
+    features.forEach(f => {
+        const isStation = Boolean(getStationName(f.properties));
+        const isLineGeom = f.geometry?.type === "LineString" || f.geometry?.type === "MultiLineString";
 
-            if (isStation && isLineGeom) {
-                const center = getCenterLatLng(f.geometry.coordinates);
-                if (center[0] !== 0 && center[1] !== 0) {
-                    const stGroup = createStationGroup(L.latLng(center[0], center[1]), f);
-                    stationLayerGroup.addLayer(stGroup);
-                }
+        if (isStation && isLineGeom) {
+            const center = getCenterLatLng(f.geometry.coordinates);
+            if (center[0] !== 0 && center[1] !== 0) {
+                const stGroup = createStationGroup(L.latLng(center[0], center[1]), f);
+                stationLayerGroup.addLayer(stGroup);
             }
-        });
-    }
+        }
+    });
 
     state.boundaryLayers.railway.addLayer(lineLayerGroup);
     state.boundaryLayers.railway.addLayer(stationLayerGroup);
@@ -1070,7 +1091,8 @@ async function renderRailwayLayer() {
 function updateLineHighlight(targetLineKey, isHover) {
     if (!state.boundaryLayers.railway || !targetLineKey) return;
 
-    const coloredHex = state.railwayColorState[targetLineKey];
+    const lineCustom = state.railwayColorState[targetLineKey];
+    const coloredHex = lineCustom ? (typeof lineCustom === 'string' ? lineCustom : lineCustom.color) : null;
 
     state.boundaryLayers.railway.eachLayer(layerOrGroup => {
         const processGroup = (group) => {
@@ -1176,6 +1198,7 @@ function renderRailwayControlPanel() {
             const lineName = getLineName(props) || "路線名不明";
             const companyName = getLineCompany(props) || "事業者不明";
             const stKey = getStationKey(props);
+            const lineKey = getLineKey(props);
             
             const defaultSt = state.railwayConfig.station;
             const currentCustom = state.stationColorState[stKey] || {};
@@ -1183,11 +1206,19 @@ function renderRailwayControlPanel() {
             const hasFillCustom = currentCustom.color !== undefined;
             const hasStrokeCustom = currentCustom.strokeColor !== undefined;
             const hasRadiusCustom = currentCustom.radius !== undefined;
-            const hasAnyCustom = hasFillCustom || hasStrokeCustom || hasRadiusCustom;
+            const hasShowCustom = currentCustom.show !== undefined;
+            const hasAnyCustom = hasFillCustom || hasStrokeCustom || hasRadiusCustom || hasShowCustom;
 
             const fillColor = currentCustom.color || defaultSt.color || "#1e293b";
             const strokeColor = currentCustom.strokeColor || defaultSt.strokeColor || "#ffffff";
             const radius = currentCustom.radius !== undefined ? currentCustom.radius : (defaultSt.radius || 5);
+
+            const lineCustom = lineKey ? state.railwayColorState[lineKey] : null;
+            const inheritedShow = (lineCustom && lineCustom.showStations !== undefined) 
+                ? lineCustom.showStations 
+                : (defaultSt.show !== false);
+
+            const isCurrentlyShown = currentCustom.show !== undefined ? currentCustom.show : inheritedShow;
 
             html += `
                 <div class="p-2.5 bg-white border border-indigo-100 rounded-lg shadow-xs space-y-2.5">
@@ -1205,6 +1236,19 @@ function renderRailwayControlPanel() {
                     </div>
 
                     <div class="space-y-2 pt-1 border-t border-slate-100">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-medium text-slate-600">この駅を表示</span>
+                            <div class="flex items-center gap-1.5">
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="chkSelectedStationShow" class="sr-only peer" ${isCurrentlyShown ? 'checked' : ''}>
+                                    <div class="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600"></div>
+                                </label>
+                                <button type="button" id="btnClearStationShow" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition ${hasShowCustom ? '' : 'opacity-60 cursor-default'}">
+                                    リセット
+                                </button>
+                            </div>
+                        </div>
+
                         <div class="flex items-center justify-between">
                             <span class="text-[11px] font-medium text-slate-600">塗り色</span>
                             <div class="flex items-center gap-1.5">
@@ -1251,8 +1295,13 @@ function renderRailwayControlPanel() {
             const lineName = getLineName(props) || "路線名不明";
             const companyName = getLineCompany(props) || "事業者不明";
             const lineKey = getLineKey(props);
-            const currentColor = state.railwayColorState[lineKey] || state.railwayConfig.line.color || "#334155";
-            const hasCustomColor = Boolean(state.railwayColorState[lineKey]);
+            
+            const lineCustom = state.railwayColorState[lineKey] || {};
+            const currentColor = (typeof lineCustom === 'string' ? lineCustom : lineCustom.color) || state.railwayConfig.line.color || "#334155";
+            const hasCustomColor = (typeof lineCustom === 'string' ? true : lineCustom.color !== undefined);
+            
+            const hasShowStationsCustom = lineCustom.showStations !== undefined;
+            const isShowStations = hasShowStationsCustom ? lineCustom.showStations : (state.railwayConfig.station.show !== false);
 
             html += `
                 <div class="p-2.5 bg-white border border-indigo-100 rounded-lg shadow-xs space-y-2">
@@ -1269,15 +1318,30 @@ function renderRailwayControlPanel() {
                         <div class="text-sm font-bold text-slate-800">${lineName}</div>
                     </div>
 
-                    <div class="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
-                        <label class="text-xs font-medium text-slate-700 flex items-center gap-1.5">
-                            <span>路線の色</span>
-                        </label>
-                        <div class="flex items-center gap-2">
-                            <input type="color" id="inputSelectedLineColor" value="${currentColor}" class="w-7 h-7 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
-                            <button type="button" id="btnClearSelectedLineColor" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition ${hasCustomColor ? '' : 'opacity-60 cursor-default'}">
-                                リセット
-                            </button>
+                    <div class="space-y-2 pt-1 border-t border-slate-100">
+                        <div class="flex items-center justify-between gap-2">
+                            <label class="text-xs font-medium text-slate-700 flex items-center gap-1.5">
+                                <span>路線の色</span>
+                            </label>
+                            <div class="flex items-center gap-2">
+                                <input type="color" id="inputSelectedLineColor" value="${currentColor}" class="w-7 h-7 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
+                                <button type="button" id="btnClearSelectedLineColor" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition ${hasCustomColor ? '' : 'opacity-60 cursor-default'}">
+                                    リセット
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-medium text-slate-700">所属駅を表示</span>
+                            <div class="flex items-center gap-2">
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="chkSelectedLineShowStations" class="sr-only peer" ${isShowStations ? 'checked' : ''}>
+                                    <div class="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600"></div>
+                                </label>
+                                <button type="button" id="btnClearSelectedLineShowStations" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition ${hasShowStationsCustom ? '' : 'opacity-60 cursor-default'}">
+                                    リセット
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1321,45 +1385,43 @@ function renderRailwayControlPanel() {
             renderRailwayControlPanel();
         });
 
-        const updateStationCustomProp = (prop, val) => {
+        const updateStationCustomProp = async (prop, val) => {
             if (!state.stationColorState[stKey]) state.stationColorState[stKey] = {};
             state.stationColorState[stKey][prop] = val;
-            updateStationHighlight(stKey, false);
             saveToLocalStorage();
+            await renderRailwayLayer();
             renderRailwayControlPanel();
         };
 
-        const clearStationCustomProp = (prop) => {
+        const clearStationCustomProp = async (prop) => {
             if (state.stationColorState[stKey]) {
                 delete state.stationColorState[stKey][prop];
                 if (Object.keys(state.stationColorState[stKey]).length === 0) {
                     delete state.stationColorState[stKey];
                 }
             }
-            updateStationHighlight(stKey, false);
             saveToLocalStorage();
+            await renderRailwayLayer();
             renderRailwayControlPanel();
         };
 
-        document.getElementById("inputSelectedStationColor")?.addEventListener("input", (e) => {
-            updateStationCustomProp("color", e.target.value);
+        document.getElementById("chkSelectedStationShow")?.addEventListener("change", (e) => {
+            updateStationCustomProp("show", e.target.checked);
         });
-        document.getElementById("inputSelectedStationStrokeColor")?.addEventListener("input", (e) => {
-            updateStationCustomProp("strokeColor", e.target.value);
-        });
-        document.getElementById("rangeSelectedStationRadius")?.addEventListener("input", (e) => {
-            const rad = parseInt(e.target.value, 10);
-            updateStationCustomProp("radius", rad);
-        });
+        document.getElementById("btnClearStationShow")?.addEventListener("click", () => clearStationCustomProp("show"));
+
+        document.getElementById("inputSelectedStationColor")?.addEventListener("input", (e) => updateStationCustomProp("color", e.target.value));
+        document.getElementById("inputSelectedStationStrokeColor")?.addEventListener("input", (e) => updateStationCustomProp("strokeColor", e.target.value));
+        document.getElementById("rangeSelectedStationRadius")?.addEventListener("input", (e) => updateStationCustomProp("radius", parseInt(e.target.value, 10)));
 
         document.getElementById("btnClearStationFillColor")?.addEventListener("click", () => clearStationCustomProp("color"));
         document.getElementById("btnClearStationStrokeColor")?.addEventListener("click", () => clearStationCustomProp("strokeColor"));
         document.getElementById("btnClearStationRadius")?.addEventListener("click", () => clearStationCustomProp("radius"));
 
-        document.getElementById("btnClearSelectedStationAll")?.addEventListener("click", () => {
+        document.getElementById("btnClearSelectedStationAll")?.addEventListener("click", async () => {
             delete state.stationColorState[stKey];
-            updateStationHighlight(stKey, false);
             saveToLocalStorage();
+            await renderRailwayLayer();
             renderRailwayControlPanel();
         });
     }
@@ -1373,19 +1435,38 @@ function renderRailwayControlPanel() {
             renderRailwayControlPanel();
         });
 
-        document.getElementById("inputSelectedLineColor")?.addEventListener("input", (e) => {
-            const newColor = e.target.value;
-            state.railwayColorState[lineKey] = newColor;
-            updateLineHighlight(lineKey, true);
+        const updateLineProp = async (prop, val) => {
+            let current = state.railwayColorState[lineKey];
+            if (typeof current === 'string') {
+                current = { color: current };
+            } else if (!current) {
+                current = {};
+            }
+            current[prop] = val;
+            state.railwayColorState[lineKey] = current;
             saveToLocalStorage();
-        });
-
-        document.getElementById("btnClearSelectedLineColor")?.addEventListener("click", () => {
-            delete state.railwayColorState[lineKey];
-            updateLineHighlight(lineKey, false);
-            saveToLocalStorage();
+            await renderRailwayLayer();
             renderRailwayControlPanel();
-        });
+        };
+
+        const clearLineProp = async (prop) => {
+            let current = state.railwayColorState[lineKey];
+            if (current && typeof current === 'object') {
+                delete current[prop];
+                if (Object.keys(current).length === 0) {
+                    delete state.railwayColorState[lineKey];
+                }
+            }
+            saveToLocalStorage();
+            await renderRailwayLayer();
+            renderRailwayControlPanel();
+        };
+
+        document.getElementById("inputSelectedLineColor")?.addEventListener("input", (e) => updateLineProp("color", e.target.value));
+        document.getElementById("btnClearSelectedLineColor")?.addEventListener("click", () => clearLineProp("color"));
+
+        document.getElementById("chkSelectedLineShowStations")?.addEventListener("change", (e) => updateLineProp("showStations", e.target.checked));
+        document.getElementById("btnClearSelectedLineShowStations")?.addEventListener("click", () => clearLineProp("showStations"));
     }
 
     document.getElementById("btnClearAllRailwayCustom")?.addEventListener("click", async () => {
