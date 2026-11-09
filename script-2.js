@@ -943,24 +943,25 @@ async function renderRailwayLayer() {
     const stationLayerGroup = L.layerGroup();
 
     // 駅の表示・非表示判定関数 (1. 駅個別 -> 2. 路線個別 -> 3. 全体設定)
+    // ※ 全体設定がOFFであっても、路線や駅の個別設定でONになっていれば表示されます
     function isStationVisible(feature) {
         const props = feature.properties || {};
         const stKey = getStationKey(props);
         const lineKey = getLineKey(props);
 
-        // 1. 駅個別の表示設定
+        // 1. 駅個別の表示設定があれば最優先
         const stCustom = stKey ? state.stationColorState[stKey] : null;
         if (stCustom && stCustom.show !== undefined) {
             return stCustom.show;
         }
 
-        // 2. 路線個別の所属駅表示設定
+        // 2. 路線個別の所属駅表示設定があればそれを適用
         const lineCustom = lineKey ? state.railwayColorState[lineKey] : null;
         if (lineCustom && lineCustom.showStations !== undefined) {
             return lineCustom.showStations;
         }
 
-        // 3. デフォルト（全体設定）
+        // 3. どちらも個別設定がなければ全体設定を適用
         return state.railwayConfig.station.show !== false;
     }
 
