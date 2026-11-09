@@ -355,7 +355,7 @@ function initPrefModalUI() {
             state.mapMode = state.pendingMapMode;
             state.colorState = {};
             state.pendingMapMode = null;
-            document.getElementById("modeConfirmModal")?.classList.add("hidden");
+            document.getElementById("modeConfirmModal")?.classList.remove("hidden");
             updateModeUI();
             updateHeaderPrefButton();
             saveToLocalStorage();
@@ -922,19 +922,16 @@ function isStationVisible(feature) {
     const stKey = getStationKey(props);
     const lineKey = getLineKey(props);
 
-    // 1. 駅個別の表示設定があれば最優先
     const stCustom = stKey ? state.stationColorState[stKey] : null;
     if (stCustom && stCustom.show !== undefined) {
         return stCustom.show;
     }
 
-    // 2. 路線個別の所属駅表示設定があればそれを適用
     const lineCustom = lineKey ? state.railwayColorState[lineKey] : null;
     if (lineCustom && lineCustom.showStations !== undefined) {
         return lineCustom.showStations;
     }
 
-    // 3. どちらも個別設定がなければ全体設定を適用
     return state.railwayConfig.station.show !== false;
 }
 
@@ -970,6 +967,19 @@ async function renderRailwayLayer() {
 
         if (!isStationVisible(feature)) return group;
         
+        const props = feature.properties || {};
+        const stKey = getStationKey(props);
+        const stCustom = stKey ? state.stationColorState[stKey] : null;
+
+        // 個別枠線色の決定（駅個別設定 > スタイル関数で計算された色）
+        const strokeColor = (stCustom && stCustom.strokeColor) 
+            ? stCustom.strokeColor 
+            : (stStyle.color || state.railwayConfig.station.strokeColor || "#ffffff");
+            
+        const strokeWeight = (stCustom && stCustom.strokeWeight !== undefined) 
+            ? stCustom.strokeWeight 
+            : (stStyle.weight !== undefined ? stStyle.weight : (state.railwayConfig.station.strokeWeight || 2));
+
         const hitCircle = L.circleMarker(latlng, {
             pane: "railwayPane",
             radius: Math.max((stStyle.radius || 5) + 10, 16),
@@ -984,8 +994,8 @@ async function renderRailwayLayer() {
             pane: "railwayPane",
             radius: stStyle.radius || 5,
             fillColor: stStyle.fillColor || "#1e293b",
-            color: stStyle.color || "#ffffff",
-            weight: stStyle.weight !== undefined ? stStyle.weight : 2,
+            color: strokeColor,
+            weight: strokeWeight,
             opacity: stStyle.opacity || 0.95,
             fillOpacity: stStyle.opacity || 0.95,
             interactive: false
@@ -1148,20 +1158,29 @@ function updateStationHighlight(targetStationKey, isHover) {
                 const target = group.displayTarget;
                 if (target && target.setStyle) {
                     const baseStyle = getRailwayFeatureStyle(feat);
+                    const stCustom = state.stationColorState[stKey] || {};
+
+                    const strokeColor = stCustom.strokeColor 
+                        ? stCustom.strokeColor 
+                        : (baseStyle.color || state.railwayConfig.station.strokeColor || "#ffffff");
+
+                    const strokeWeight = stCustom.strokeWeight !== undefined 
+                        ? stCustom.strokeWeight 
+                        : (baseStyle.weight !== undefined ? baseStyle.weight : (state.railwayConfig.station.strokeWeight || 2));
+
                     if (isHover) {
                         target.setStyle({
                             fillColor: "#ef4444",
                             color: "#ffffff",
-                            weight: (baseStyle.weight || 2) + 1,
+                            weight: strokeWeight + 1,
                             fillOpacity: 1.0
                         });
                     } else {
-                        // ホバー解除時に優先順位付き判定スタイルへ復元
                         target.setStyle({
-                            radius: baseStyle.radius || 5,
-                            fillColor: baseStyle.fillColor || "#1e293b",
-                            color: baseStyle.color || "#ffffff",
-                            weight: baseStyle.weight !== undefined ? baseStyle.weight : 2,
+                            radius: stCustom.radius !== undefined ? stCustom.radius : (baseStyle.radius || 5),
+                            fillColor: stCustom.color || baseStyle.fillColor || "#1e293b",
+                            color: strokeColor,
+                            weight: strokeWeight,
                             opacity: baseStyle.opacity || 0.95,
                             fillOpacity: baseStyle.opacity || 0.95
                         });
@@ -1505,12 +1524,11 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
     targetLayer.on({
         mouseover: (e) => {
             if (isStationFeature) {
-                // 表示対象として判定されている場合のみホバー表示
                 if (displayTarget && displayTarget.setStyle && isStationVisible(feature)) {
                     displayTarget.setStyle({
                         fillColor: "#ef4444",
                         color: "#ffffff",
-                        weight: (state.railwayConfig.station.strokeWeight || 2) + 1,
+                        weight: ((displayTarget.options.weight || 2) + 1),
                         fillOpacity: 1.0
                     });
                 }
