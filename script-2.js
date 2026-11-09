@@ -916,6 +916,28 @@ function renderBoundaryLayers() {
     });
 }
 
+// 駅の表示・非表示判定関数 (1. 駅個別 -> 2. 路線個別 -> 3. 全体設定)
+function isStationVisible(feature) {
+    const props = feature.properties || {};
+    const stKey = getStationKey(props);
+    const lineKey = getLineKey(props);
+
+    // 1. 駅個別の表示設定があれば最優先
+    const stCustom = stKey ? state.stationColorState[stKey] : null;
+    if (stCustom && stCustom.show !== undefined) {
+        return stCustom.show;
+    }
+
+    // 2. 路線個別の所属駅表示設定があればそれを適用
+    const lineCustom = lineKey ? state.railwayColorState[lineKey] : null;
+    if (lineCustom && lineCustom.showStations !== undefined) {
+        return lineCustom.showStations;
+    }
+
+    // 3. どちらも個別設定がなければ全体設定を適用
+    return state.railwayConfig.station.show !== false;
+}
+
 async function renderRailwayLayer() {
     if (state.boundaryLayers.railway) {
         state.map.removeLayer(state.boundaryLayers.railway);
@@ -941,29 +963,6 @@ async function renderRailwayLayer() {
     state.boundaryLayers.railway = L.layerGroup();
     const lineLayerGroup = L.layerGroup();
     const stationLayerGroup = L.layerGroup();
-
-    // 駅の表示・非表示判定関数 (1. 駅個別 -> 2. 路線個別 -> 3. 全体設定)
-    // ※ 全体設定がOFFであっても、路線や駅の個別設定でONになっていれば表示されます
-    function isStationVisible(feature) {
-        const props = feature.properties || {};
-        const stKey = getStationKey(props);
-        const lineKey = getLineKey(props);
-
-        // 1. 駅個別の表示設定があれば最優先
-        const stCustom = stKey ? state.stationColorState[stKey] : null;
-        if (stCustom && stCustom.show !== undefined) {
-            return stCustom.show;
-        }
-
-        // 2. 路線個別の所属駅表示設定があればそれを適用
-        const lineCustom = lineKey ? state.railwayColorState[lineKey] : null;
-        if (lineCustom && lineCustom.showStations !== undefined) {
-            return lineCustom.showStations;
-        }
-
-        // 3. どちらも個別設定がなければ全体設定を適用
-        return state.railwayConfig.station.show !== false;
-    }
 
     function createStationGroup(latlng, feature) {
         const group = L.layerGroup();
@@ -1157,7 +1156,15 @@ function updateStationHighlight(targetStationKey, isHover) {
                             fillOpacity: 1.0
                         });
                     } else {
-                        target.setStyle(baseStyle);
+                        // ホバー解除時に優先順位付き判定スタイルへ復元
+                        target.setStyle({
+                            radius: baseStyle.radius || 5,
+                            fillColor: baseStyle.fillColor || "#1e293b",
+                            color: baseStyle.color || "#ffffff",
+                            weight: baseStyle.weight !== undefined ? baseStyle.weight : 2,
+                            opacity: baseStyle.opacity || 0.95,
+                            fillOpacity: baseStyle.opacity || 0.95
+                        });
                     }
                 }
             }
@@ -1498,7 +1505,8 @@ function bindTargetEvents(targetLayer, feature, displayTarget) {
     targetLayer.on({
         mouseover: (e) => {
             if (isStationFeature) {
-                if (displayTarget && displayTarget.setStyle && state.railwayConfig.station.show !== false) {
+                // 表示対象として判定されている場合のみホバー表示
+                if (displayTarget && displayTarget.setStyle && isStationVisible(feature)) {
                     displayTarget.setStyle({
                         fillColor: "#ef4444",
                         color: "#ffffff",
