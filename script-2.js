@@ -935,6 +935,54 @@ function isStationVisible(feature) {
     return state.railwayConfig.station.show !== false;
 }
 
+// 駅の計算用スタイル取得補助関数 (1. 駅個別 -> 2. 路線個別 -> 3. 全体設定)
+function getResolvedStationStyle(feature) {
+    const props = feature.properties || {};
+    const stKey = getStationKey(props);
+    const lineKey = getLineKey(props);
+
+    const baseStyle = getRailwayFeatureStyle(feature);
+    const stCustom = stKey ? state.stationColorState[stKey] : null;
+    const lineCustom = lineKey ? state.railwayColorState[lineKey] : null;
+
+    // 塗り色 (駅個別 > 路線設定 > 全体/ベース)
+    const fillColor = (stCustom && stCustom.color) 
+        ? stCustom.color 
+        : ((lineCustom && lineCustom.stationColor) 
+            ? lineCustom.stationColor 
+            : (baseStyle.fillColor || state.railwayConfig.station.color || "#1e293b"));
+
+    // 枠線色 (駅個別 > 路線設定 > 全体/ベース)
+    const strokeColor = (stCustom && stCustom.strokeColor) 
+        ? stCustom.strokeColor 
+        : ((lineCustom && lineCustom.stationStrokeColor) 
+            ? lineCustom.stationStrokeColor 
+            : (baseStyle.color && baseStyle.color !== "none" ? baseStyle.color : (state.railwayConfig.station.strokeColor || "#ffffff")));
+
+    // 線幅 (駅個別 > 路線設定 > 全体/ベース)
+    let strokeWeight = (stCustom && stCustom.strokeWeight !== undefined) 
+        ? stCustom.strokeWeight 
+        : ((lineCustom && lineCustom.stationStrokeWeight !== undefined) 
+            ? lineCustom.stationStrokeWeight 
+            : (baseStyle.weight !== undefined && baseStyle.weight > 0 ? baseStyle.weight : (state.railwayConfig.station.strokeWeight || 2)));
+    if (!strokeWeight || strokeWeight <= 0) strokeWeight = 2;
+
+    // サイズ (駅個別 > 路線設定 > 全体/ベース)
+    const radius = (stCustom && stCustom.radius !== undefined) 
+        ? stCustom.radius 
+        : ((lineCustom && lineCustom.stationRadius !== undefined) 
+            ? lineCustom.stationRadius 
+            : (baseStyle.radius || state.railwayConfig.station.radius || 5));
+
+    return {
+        fillColor,
+        strokeColor,
+        strokeWeight,
+        radius,
+        opacity: baseStyle.opacity || 0.95
+    };
+}
+
 async function renderRailwayLayer() {
     if (state.boundaryLayers.railway) {
         state.map.removeLayer(state.boundaryLayers.railway);
@@ -963,28 +1011,13 @@ async function renderRailwayLayer() {
 
     function createStationGroup(latlng, feature) {
         const group = L.layerGroup();
-        const stStyle = getRailwayFeatureStyle(feature);
-
         if (!isStationVisible(feature)) return group;
-        
-        const props = feature.properties || {};
-        const stKey = getStationKey(props);
-        const stCustom = stKey ? state.stationColorState[stKey] : null;
 
-        // 全体設定がOFF等でstStyle.weightが0であっても、枠線を確実に描画させる設定
-        const strokeColor = (stCustom && stCustom.strokeColor) 
-            ? stCustom.strokeColor 
-            : (stStyle.color && stStyle.color !== "none" ? stStyle.color : (state.railwayConfig.station.strokeColor || "#ffffff"));
-            
-        let strokeWeight = (stCustom && stCustom.strokeWeight !== undefined) 
-            ? stCustom.strokeWeight 
-            : (stStyle.weight !== undefined && stStyle.weight > 0 ? stStyle.weight : (state.railwayConfig.station.strokeWeight || 2));
-        
-        if (!strokeWeight || strokeWeight <= 0) strokeWeight = 2;
+        const resolved = getResolvedStationStyle(feature);
 
         const hitCircle = L.circleMarker(latlng, {
             pane: "railwayPane",
-            radius: Math.max((stStyle.radius || 5) + 10, 16),
+            radius: Math.max(resolved.radius + 10, 16),
             color: "rgba(0,0,0,0)",
             fillColor: "rgba(0,0,0,0)",
             weight: 0,
@@ -994,13 +1027,13 @@ async function renderRailwayLayer() {
 
         const displayCircle = L.circleMarker(latlng, {
             pane: "railwayPane",
-            radius: stStyle.radius || 5,
-            fillColor: stStyle.fillColor || "#1e293b",
-            color: strokeColor,
+            radius: resolved.radius,
+            fillColor: resolved.fillColor,
+            color: resolved.strokeColor,
             stroke: true,
-            weight: strokeWeight,
-            opacity: stStyle.opacity || 0.95,
-            fillOpacity: stStyle.opacity || 0.95,
+            weight: resolved.strokeWeight,
+            opacity: resolved.opacity,
+            fillOpacity: resolved.opacity,
             interactive: false
         });
 
@@ -1160,36 +1193,25 @@ function updateStationHighlight(targetStationKey, isHover) {
             if (stKey && stKey === targetStationKey) {
                 const target = group.displayTarget;
                 if (target && target.setStyle) {
-                    const baseStyle = getRailwayFeatureStyle(feat);
-                    const stCustom = state.stationColorState[stKey] || {};
-
-                    const strokeColor = stCustom.strokeColor 
-                        ? stCustom.strokeColor 
-                        : (baseStyle.color && baseStyle.color !== "none" ? baseStyle.color : (state.railwayConfig.station.strokeColor || "#ffffff"));
-
-                    let strokeWeight = stCustom.strokeWeight !== undefined 
-                        ? stCustom.strokeWeight 
-                        : (baseStyle.weight !== undefined && baseStyle.weight > 0 ? baseStyle.weight : (state.railwayConfig.station.strokeWeight || 2));
-
-                    if (!strokeWeight || strokeWeight <= 0) strokeWeight = 2;
+                    const resolved = getResolvedStationStyle(feat);
 
                     if (isHover) {
                         target.setStyle({
                             fillColor: "#ef4444",
                             color: "#ffffff",
                             stroke: true,
-                            weight: strokeWeight + 1,
+                            weight: resolved.strokeWeight + 1,
                             fillOpacity: 1.0
                         });
                     } else {
                         target.setStyle({
-                            radius: stCustom.radius !== undefined ? stCustom.radius : (baseStyle.radius || 5),
-                            fillColor: stCustom.color || baseStyle.fillColor || "#1e293b",
-                            color: strokeColor,
+                            radius: resolved.radius,
+                            fillColor: resolved.fillColor,
+                            color: resolved.strokeColor,
                             stroke: true,
-                            weight: strokeWeight,
-                            opacity: baseStyle.opacity || 0.95,
-                            fillOpacity: baseStyle.opacity || 0.95
+                            weight: resolved.strokeWeight,
+                            opacity: resolved.opacity,
+                            fillOpacity: resolved.opacity
                         });
                     }
                 }
@@ -1236,18 +1258,18 @@ function renderRailwayControlPanel() {
             
             const defaultSt = state.railwayConfig.station;
             const currentCustom = state.stationColorState[stKey] || {};
-            
+            const lineCustom = lineKey ? state.railwayColorState[lineKey] : null;
+
             const hasFillCustom = currentCustom.color !== undefined;
             const hasStrokeCustom = currentCustom.strokeColor !== undefined;
             const hasRadiusCustom = currentCustom.radius !== undefined;
             const hasShowCustom = currentCustom.show !== undefined;
             const hasAnyCustom = hasFillCustom || hasStrokeCustom || hasRadiusCustom || hasShowCustom;
 
-            const fillColor = currentCustom.color || defaultSt.color || "#1e293b";
-            const strokeColor = currentCustom.strokeColor || defaultSt.strokeColor || "#ffffff";
-            const radius = currentCustom.radius !== undefined ? currentCustom.radius : (defaultSt.radius || 5);
+            const fillColor = currentCustom.color || lineCustom?.stationColor || defaultSt.color || "#1e293b";
+            const strokeColor = currentCustom.strokeColor || lineCustom?.stationStrokeColor || defaultSt.strokeColor || "#ffffff";
+            const radius = currentCustom.radius !== undefined ? currentCustom.radius : (lineCustom?.stationRadius !== undefined ? lineCustom.stationRadius : (defaultSt.radius || 5));
 
-            const lineCustom = lineKey ? state.railwayColorState[lineKey] : null;
             const inheritedShow = (lineCustom && lineCustom.showStations !== undefined) 
                 ? lineCustom.showStations 
                 : (defaultSt.show !== false);
@@ -1337,6 +1359,16 @@ function renderRailwayControlPanel() {
             const hasShowStationsCustom = lineCustom.showStations !== undefined;
             const isShowStations = hasShowStationsCustom ? lineCustom.showStations : (state.railwayConfig.station.show !== false);
 
+            const defaultSt = state.railwayConfig.station;
+            const hasStColorCustom = lineCustom.stationColor !== undefined;
+            const lineStColor = lineCustom.stationColor || defaultSt.color || "#1e293b";
+
+            const hasStStrokeColorCustom = lineCustom.stationStrokeColor !== undefined;
+            const lineStStrokeColor = lineCustom.stationStrokeColor || defaultSt.strokeColor || "#ffffff";
+
+            const hasStRadiusCustom = lineCustom.stationRadius !== undefined;
+            const lineStRadius = lineCustom.stationRadius !== undefined ? lineCustom.stationRadius : (defaultSt.radius || 5);
+
             html += `
                 <div class="p-2.5 bg-white border border-indigo-100 rounded-lg shadow-xs space-y-2">
                     <div class="flex items-center justify-between border-b border-slate-100 pb-1.5">
@@ -1375,6 +1407,42 @@ function renderRailwayControlPanel() {
                                 <button type="button" id="btnClearSelectedLineShowStations" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition ${hasShowStationsCustom ? '' : 'opacity-60 cursor-default'}">
                                     リセット
                                 </button>
+                            </div>
+                        </div>
+
+                        <!-- 所属駅の一括カスタマイズ -->
+                        <div class="pt-2 border-t border-slate-100 space-y-2">
+                            <div class="text-[11px] font-bold text-slate-500">所属駅の一括設定</div>
+
+                            <div class="flex items-center justify-between">
+                                <span class="text-[11px] font-medium text-slate-600">駅の塗り色</span>
+                                <div class="flex items-center gap-1.5">
+                                    <input type="color" id="inputLineStationColor" value="${lineStColor}" class="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
+                                    <button type="button" id="btnClearLineStationColor" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition ${hasStColorCustom ? '' : 'opacity-60 cursor-default'}">
+                                        リセット
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-between">
+                                <span class="text-[11px] font-medium text-slate-600">駅の枠線色</span>
+                                <div class="flex items-center gap-1.5">
+                                    <input type="color" id="inputLineStationStrokeColor" value="${lineStStrokeColor}" class="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0 bg-transparent">
+                                    <button type="button" id="btnClearLineStationStrokeColor" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition ${hasStStrokeColorCustom ? '' : 'opacity-60 cursor-default'}">
+                                        リセット
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[11px] font-medium text-slate-600 shrink-0">駅のサイズ</span>
+                                <div class="flex items-center gap-1.5 grow justify-end">
+                                    <input type="range" id="rangeLineStationRadius" min="2" max="15" value="${lineStRadius}" class="w-20 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                                    <span class="text-[11px] font-bold text-slate-700 w-3 text-right" id="valLineStationRadius">${lineStRadius}</span>
+                                    <button type="button" id="btnClearLineStationRadius" class="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] rounded font-semibold transition shrink-0 ${hasStRadiusCustom ? '' : 'opacity-60 cursor-default'}">
+                                        リセット
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1501,6 +1569,16 @@ function renderRailwayControlPanel() {
 
         document.getElementById("chkSelectedLineShowStations")?.addEventListener("change", (e) => updateLineProp("showStations", e.target.checked));
         document.getElementById("btnClearSelectedLineShowStations")?.addEventListener("click", () => clearLineProp("showStations"));
+
+        // 路線単位での所属駅の一括変更イベント
+        document.getElementById("inputLineStationColor")?.addEventListener("input", (e) => updateLineProp("stationColor", e.target.value));
+        document.getElementById("btnClearLineStationColor")?.addEventListener("click", () => clearLineProp("stationColor"));
+
+        document.getElementById("inputLineStationStrokeColor")?.addEventListener("input", (e) => updateLineProp("stationStrokeColor", e.target.value));
+        document.getElementById("btnClearLineStationStrokeColor")?.addEventListener("click", () => clearLineProp("stationStrokeColor"));
+
+        document.getElementById("rangeLineStationRadius")?.addEventListener("input", (e) => updateLineProp("stationRadius", parseInt(e.target.value, 10)));
+        document.getElementById("btnClearLineStationRadius")?.addEventListener("click", () => clearLineProp("stationRadius"));
     }
 
     document.getElementById("btnClearAllRailwayCustom")?.addEventListener("click", async () => {
