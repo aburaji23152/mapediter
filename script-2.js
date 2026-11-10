@@ -355,7 +355,7 @@ function initPrefModalUI() {
             state.mapMode = state.pendingMapMode;
             state.colorState = {};
             state.pendingMapMode = null;
-            document.getElementById("modeConfirmModal")?.classList.remove("hidden");
+            document.getElementById("modeConfirmModal")?.classList.add("hidden");
             updateModeUI();
             updateHeaderPrefButton();
             saveToLocalStorage();
@@ -1369,6 +1369,8 @@ function renderRailwayControlPanel() {
             const hasStRadiusCustom = lineCustom.stationRadius !== undefined;
             const lineStRadius = lineCustom.stationRadius !== undefined ? lineCustom.stationRadius : (defaultSt.radius || 5);
 
+            const hasAnyLineCustom = hasCustomColor || hasShowStationsCustom || hasStColorCustom || hasStStrokeColorCustom || hasStRadiusCustom;
+
             html += `
                 <div class="p-2.5 bg-white border border-indigo-100 rounded-lg shadow-xs space-y-2">
                     <div class="flex items-center justify-between border-b border-slate-100 pb-1.5">
@@ -1444,6 +1446,12 @@ function renderRailwayControlPanel() {
                                     </button>
                                 </div>
                             </div>
+                        </div>
+
+                        <div class="pt-1.5 border-t border-slate-100 text-right">
+                            <button type="button" id="btnClearSelectedLineAll" class="w-full py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-[10px] rounded font-semibold transition ${hasAnyLineCustom ? '' : 'opacity-50 cursor-not-allowed'}" ${hasAnyLineCustom ? '' : 'disabled'}>
+                                路線設定をすべて初期化
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1579,6 +1587,14 @@ function renderRailwayControlPanel() {
 
         document.getElementById("rangeLineStationRadius")?.addEventListener("input", (e) => updateLineProp("stationRadius", parseInt(e.target.value, 10)));
         document.getElementById("btnClearLineStationRadius")?.addEventListener("click", () => clearLineProp("stationRadius"));
+
+        // 路線設定の全初期化
+        document.getElementById("btnClearSelectedLineAll")?.addEventListener("click", async () => {
+            delete state.railwayColorState[lineKey];
+            saveToLocalStorage();
+            await renderRailwayLayer();
+            renderRailwayControlPanel();
+        });
     }
 
     document.getElementById("btnClearAllRailwayCustom")?.addEventListener("click", async () => {
