@@ -916,7 +916,6 @@ function renderBoundaryLayers() {
     });
 }
 
-// 駅の表示・非表示判定関数 (1. 駅個別 -> 2. 路線個別 -> 3. 全体設定)
 function isStationVisible(feature) {
     const props = feature.properties || {};
     const stKey = getStationKey(props);
@@ -935,7 +934,6 @@ function isStationVisible(feature) {
     return state.railwayConfig.station.show !== false;
 }
 
-// 駅の計算用スタイル取得補助関数 (1. 駅個別 -> 2. 路線個別 -> 3. 全体設定)
 function getResolvedStationStyle(feature) {
     const props = feature.properties || {};
     const stKey = getStationKey(props);
@@ -945,21 +943,18 @@ function getResolvedStationStyle(feature) {
     const stCustom = stKey ? state.stationColorState[stKey] : null;
     const lineCustom = lineKey ? state.railwayColorState[lineKey] : null;
 
-    // 塗り色 (駅個別 > 路線設定 > 全体/ベース)
     const fillColor = (stCustom && stCustom.color) 
         ? stCustom.color 
         : ((lineCustom && lineCustom.stationColor) 
             ? lineCustom.stationColor 
             : (baseStyle.fillColor || state.railwayConfig.station.color || "#1e293b"));
 
-    // 枠線色 (駅個別 > 路線設定 > 全体/ベース)
     const strokeColor = (stCustom && stCustom.strokeColor) 
         ? stCustom.strokeColor 
         : ((lineCustom && lineCustom.stationStrokeColor) 
             ? lineCustom.stationStrokeColor 
             : (baseStyle.color && baseStyle.color !== "none" ? baseStyle.color : (state.railwayConfig.station.strokeColor || "#ffffff")));
 
-    // 線幅 (駅個別 > 路線設定 > 全体/ベース)
     let strokeWeight = (stCustom && stCustom.strokeWeight !== undefined) 
         ? stCustom.strokeWeight 
         : ((lineCustom && lineCustom.stationStrokeWeight !== undefined) 
@@ -967,7 +962,6 @@ function getResolvedStationStyle(feature) {
             : (baseStyle.weight !== undefined && baseStyle.weight > 0 ? baseStyle.weight : (state.railwayConfig.station.strokeWeight || 2)));
     if (!strokeWeight || strokeWeight <= 0) strokeWeight = 2;
 
-    // サイズ (駅個別 > 路線設定 > 全体/ベース)
     const radius = (stCustom && stCustom.radius !== undefined) 
         ? stCustom.radius 
         : ((lineCustom && lineCustom.stationRadius !== undefined) 
@@ -981,6 +975,39 @@ function getResolvedStationStyle(feature) {
         radius,
         opacity: baseStyle.opacity || 0.95
     };
+}
+
+// 路線に含まれる駅リストおよび隣接する全駅間（区間）の抽出補助関数
+function getLineComponents(targetLineKey) {
+    if (!state.boundaryGeoJsons.railway) return { stations: [], segments: [] };
+
+    const features = state.boundaryGeoJsons.railway.features || [];
+    const stationMap = new Map();
+    const segments = [];
+
+    features.forEach(f => {
+        const props = f.properties || {};
+        const lKey = getLineKey(props);
+        const stName = getStationName(props);
+
+        if (lKey === targetLineKey && stName) {
+            const stKey = getStationKey(props);
+            if (!stationMap.has(stName)) {
+                stationMap.set(stName, { name: stName, key: stKey, feature: f });
+            }
+        }
+    });
+
+    const stationList = Array.from(stationMap.values());
+
+    for (let i = 0; i < stationList.length - 1; i++) {
+        segments.push({
+            from: stationList[i].name,
+            to: stationList[i + 1].name
+        });
+    }
+
+    return { stations: stationList, segments };
 }
 
 async function renderRailwayLayer() {
@@ -1371,6 +1398,8 @@ function renderRailwayControlPanel() {
 
             const hasAnyLineCustom = hasCustomColor || hasShowStationsCustom || hasStColorCustom || hasStStrokeColorCustom || hasStRadiusCustom;
 
+            const { stations, segments } = getLineComponents(lineKey);
+
             html += `
                 <div class="p-2.5 bg-white border border-indigo-100 rounded-lg shadow-xs space-y-2">
                     <div class="flex items-center justify-between border-b border-slate-100 pb-1.5">
@@ -1448,6 +1477,74 @@ function renderRailwayControlPanel() {
                             </div>
                         </div>
 
+                        <!-- 駅・駅間の個別詳細設定アコーディオン -->
+                        <div class="pt-2 border-t border-slate-100">
+                            <button type="button" id="btnToggleSegmentPanel" class="w-full py-1.5 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition flex items-center justify-between cursor-pointer">
+                                <span class="flex items-center gap-1">
+                                    <i data-lucide="git-commit" class="w-3.5 h-3.5"></i> 駅・駅間の個別詳細設定
+                                </span>
+                                <i data-lucide="chevron-down" class="w-3.5 h-3.5" id="iconSegmentChevron"></i>
+                            </button>
+
+                            <div id="segmentDetailContainer" class="hidden mt-2 space-y-3 bg-slate-50 p-2.5 rounded-lg border border-slate-200 max-h-60 overflow-y-auto">
+                                <div class="flex border-b border-slate-200 gap-2 mb-2">
+                                    <button type="button" id="tabSubSegments" class="text-[11px] font-bold pb-1 text-indigo-600 border-b-2 border-indigo-600 cursor-pointer">駅間 (${segments.length})</button>
+                                    <button type="button" id="tabSubStations" class="text-[11px] font-bold pb-1 text-slate-500 hover:text-slate-700 cursor-pointer">全駅 (${stations.length})</button>
+                                </div>
+
+                                <div id="listSubSegments" class="space-y-2">
+                                    ${segments.length === 0 ? '<div class="text-[10px] text-slate-400 text-center py-2">駅間データがありません</div>' : segments.map((seg) => {
+                                        const segKey = `${lineKey}_seg_${seg.from}_${seg.to}`;
+                                        const currentSeg = state.segmentColorState?.[segKey] || {};
+                                        const color = currentSeg.color || currentColor;
+                                        const weight = currentSeg.weight !== undefined ? currentSeg.weight : 4;
+
+                                        return `
+                                            <div class="p-2 bg-white rounded border border-slate-200 text-[11px] space-y-1.5">
+                                                <div class="font-bold text-slate-700 flex justify-between items-center">
+                                                    <span>${seg.from} ↔ ${seg.to}</span>
+                                                    <button type="button" class="btn-reset-seg text-[10px] text-slate-400 hover:text-rose-500 cursor-pointer" data-seg-key="${segKey}">初期化</button>
+                                                </div>
+                                                <div class="flex items-center justify-between gap-2">
+                                                    <span class="text-slate-500">色 / 太さ</span>
+                                                    <div class="flex items-center gap-1.5">
+                                                        <input type="color" class="input-seg-color w-5 h-5 rounded cursor-pointer p-0 bg-transparent" data-seg-key="${segKey}" value="${color}">
+                                                        <input type="range" class="input-seg-weight w-14 h-1 bg-slate-200 rounded appearance-none cursor-pointer" data-seg-key="${segKey}" min="1" max="10" value="${weight}">
+                                                        <span class="w-3 text-right font-semibold text-[10px]">${weight}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        `;
+                                    }).join("")}
+                                </div>
+
+                                <div id="listSubStations" class="hidden space-y-2">
+                                    ${stations.length === 0 ? '<div class="text-[10px] text-slate-400 text-center py-2">駅データがありません</div>' : stations.map(st => {
+                                        const stKey = st.key;
+                                        const stCustom = state.stationColorState?.[stKey] || {};
+                                        const fillColor = stCustom.color || lineStColor;
+                                        const strokeColor = stCustom.strokeColor || lineStStrokeColor;
+
+                                        return `
+                                            <div class="p-2 bg-white rounded border border-slate-200 text-[11px] space-y-1.5">
+                                                <div class="font-bold text-slate-700 flex justify-between items-center">
+                                                    <span>${st.name}駅</span>
+                                                    <button type="button" class="btn-reset-st-sub text-[10px] text-slate-400 hover:text-rose-500 cursor-pointer" data-st-key="${stKey}">初期化</button>
+                                                </div>
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-slate-500">塗り / 枠線</span>
+                                                    <div class="flex items-center gap-1.5">
+                                                        <input type="color" class="input-st-sub-color w-5 h-5 rounded cursor-pointer p-0 bg-transparent" data-st-key="${stKey}" data-prop="color" value="${fillColor}">
+                                                        <input type="color" class="input-st-sub-color w-5 h-5 rounded cursor-pointer p-0 bg-transparent" data-st-key="${stKey}" data-prop="strokeColor" value="${strokeColor}">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        `;
+                                    }).join("")}
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="pt-1.5 border-t border-slate-100 text-right">
                             <button type="button" id="btnClearSelectedLineAll" class="w-full py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-[10px] rounded font-semibold transition ${hasAnyLineCustom ? '' : 'opacity-50 cursor-not-allowed'}" ${hasAnyLineCustom ? '' : 'disabled'}>
                                 路線設定をすべて初期化
@@ -1471,7 +1568,8 @@ function renderRailwayControlPanel() {
 
     const stCustomCount = Object.keys(state.stationColorState).length;
     const lnCustomCount = Object.keys(state.railwayColorState).length;
-    const totalCustomCount = stCustomCount + lnCustomCount;
+    const segCustomCount = Object.keys(state.segmentColorState || {}).length;
+    const totalCustomCount = stCustomCount + lnCustomCount + segCustomCount;
 
     globalResetCard.innerHTML = `
         <button type="button" id="btnClearAllRailwayCustom" class="w-full py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 border ${
@@ -1578,7 +1676,6 @@ function renderRailwayControlPanel() {
         document.getElementById("chkSelectedLineShowStations")?.addEventListener("change", (e) => updateLineProp("showStations", e.target.checked));
         document.getElementById("btnClearSelectedLineShowStations")?.addEventListener("click", () => clearLineProp("showStations"));
 
-        // 路線単位での所属駅の一括変更イベント
         document.getElementById("inputLineStationColor")?.addEventListener("input", (e) => updateLineProp("stationColor", e.target.value));
         document.getElementById("btnClearLineStationColor")?.addEventListener("click", () => clearLineProp("stationColor"));
 
@@ -1587,6 +1684,88 @@ function renderRailwayControlPanel() {
 
         document.getElementById("rangeLineStationRadius")?.addEventListener("input", (e) => updateLineProp("stationRadius", parseInt(e.target.value, 10)));
         document.getElementById("btnClearLineStationRadius")?.addEventListener("click", () => clearLineProp("stationRadius"));
+
+        // アコーディオン開閉
+        document.getElementById("btnToggleSegmentPanel")?.addEventListener("click", () => {
+            const container = document.getElementById("segmentDetailContainer");
+            container?.classList.toggle("hidden");
+        });
+
+        // サブタブ切り替え
+        document.getElementById("tabSubSegments")?.addEventListener("click", (e) => {
+            document.getElementById("listSubSegments")?.classList.remove("hidden");
+            document.getElementById("listSubStations")?.classList.add("hidden");
+            e.target.className = "text-[11px] font-bold pb-1 text-indigo-600 border-b-2 border-indigo-600 cursor-pointer";
+            const other = document.getElementById("tabSubStations");
+            if (other) other.className = "text-[11px] font-bold pb-1 text-slate-500 hover:text-slate-700 cursor-pointer";
+        });
+
+        document.getElementById("tabSubStations")?.addEventListener("click", (e) => {
+            document.getElementById("listSubStations")?.classList.remove("hidden");
+            document.getElementById("listSubSegments")?.classList.add("hidden");
+            e.target.className = "text-[11px] font-bold pb-1 text-indigo-600 border-b-2 border-indigo-600 cursor-pointer";
+            const other = document.getElementById("tabSubSegments");
+            if (other) other.className = "text-[11px] font-bold pb-1 text-slate-500 hover:text-slate-700 cursor-pointer";
+        });
+
+        // 駅間の個別設定イベント
+        document.querySelectorAll(".input-seg-color").forEach(el => {
+            el.addEventListener("input", async (e) => {
+                const key = e.target.getAttribute("data-seg-key");
+                if (!state.segmentColorState) state.segmentColorState = {};
+                if (!state.segmentColorState[key]) state.segmentColorState[key] = {};
+                state.segmentColorState[key].color = e.target.value;
+                saveToLocalStorage();
+                await renderRailwayLayer();
+            });
+        });
+
+        document.querySelectorAll(".input-seg-weight").forEach(el => {
+            el.addEventListener("input", async (e) => {
+                const key = e.target.getAttribute("data-seg-key");
+                if (!state.segmentColorState) state.segmentColorState = {};
+                if (!state.segmentColorState[key]) state.segmentColorState[key] = {};
+                state.segmentColorState[key].weight = parseInt(e.target.value, 10);
+                saveToLocalStorage();
+                await renderRailwayLayer();
+            });
+        });
+
+        document.querySelectorAll(".btn-reset-seg").forEach(el => {
+            el.addEventListener("click", async (e) => {
+                const key = e.target.getAttribute("data-seg-key");
+                if (state.segmentColorState?.[key]) {
+                    delete state.segmentColorState[key];
+                    saveToLocalStorage();
+                    await renderRailwayLayer();
+                    renderRailwayControlPanel();
+                }
+            });
+        });
+
+        // サブリストからの駅個別設定イベント
+        document.querySelectorAll(".input-st-sub-color").forEach(el => {
+            el.addEventListener("input", async (e) => {
+                const key = e.target.getAttribute("data-st-key");
+                const prop = e.target.getAttribute("data-prop");
+                if (!state.stationColorState[key]) state.stationColorState[key] = {};
+                state.stationColorState[key][prop] = e.target.value;
+                saveToLocalStorage();
+                await renderRailwayLayer();
+            });
+        });
+
+        document.querySelectorAll(".btn-reset-st-sub").forEach(el => {
+            el.addEventListener("click", async (e) => {
+                const key = e.target.getAttribute("data-st-key");
+                if (state.stationColorState?.[key]) {
+                    delete state.stationColorState[key];
+                    saveToLocalStorage();
+                    await renderRailwayLayer();
+                    renderRailwayControlPanel();
+                }
+            });
+        });
 
         // 路線設定の全初期化
         document.getElementById("btnClearSelectedLineAll")?.addEventListener("click", async () => {
@@ -1602,6 +1781,7 @@ function renderRailwayControlPanel() {
         
         state.stationColorState = {};
         state.railwayColorState = {};
+        state.segmentColorState = {};
         state.currentSelectedStationFeature = null;
         state.currentSelectedLineFeature = null;
 
@@ -1846,6 +2026,7 @@ function importStateJson(e) {
                 state.colorState = { ...state.colorState, ...data.colorState };
                 if (data.railwayColorState) state.railwayColorState = data.railwayColorState;
                 if (data.stationColorState) state.stationColorState = data.stationColorState;
+                if (data.segmentColorState) state.segmentColorState = data.segmentColorState; // ← リストア追加
                 if (data.defaultLandColor) state.defaultLandColor = data.defaultLandColor;
                 if (data.enableLandOpacity !== undefined) state.enableLandOpacity = data.enableLandOpacity;
                 if (data.defaultLandOpacity !== undefined) state.defaultLandOpacity = parseFloat(data.defaultLandOpacity);
