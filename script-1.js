@@ -46,6 +46,7 @@ export const STORAGE_KEY_MAP_MODE = "japan_map_mode_v1";
 export const STORAGE_KEY_COLOR_STATE = "japan_map_color_state_v1";
 export const STORAGE_KEY_RAILWAY_COLOR_STATE = "japan_map_railway_color_state_v1";
 export const STORAGE_KEY_STATION_COLOR_STATE = "japan_map_station_color_state_v1";
+export const STORAGE_KEY_SEGMENT_COLOR_STATE = "japan_map_segment_color_state_v1"; // ← 駅間用キーの追加
 export const STORAGE_KEY_SELECTED_PREFS = "japan_map_selected_prefs_v1";
 export const STORAGE_KEY_ISLANDS = "japan_map_include_islands_v1";
 export const STORAGE_KEY_BOUNDARIES = "japan_map_boundaries_v1";
@@ -81,6 +82,7 @@ export const state = {
     colorState: {},
     railwayColorState: {},
     stationColorState: {},
+    segmentColorState: {}, // ← 駅間（区間）ごとの設定用オブジェクトを追加
     currentSelectedLineFeature: null,
     currentSelectedStationFeature: null,
     currentCityMap: {},
@@ -412,6 +414,7 @@ export function saveToLocalStorage() {
         localStorage.setItem(STORAGE_KEY_COLOR_STATE, JSON.stringify(state.colorState));
         localStorage.setItem(STORAGE_KEY_RAILWAY_COLOR_STATE, JSON.stringify(state.railwayColorState));
         localStorage.setItem(STORAGE_KEY_STATION_COLOR_STATE, JSON.stringify(state.stationColorState));
+        localStorage.setItem(STORAGE_KEY_SEGMENT_COLOR_STATE, JSON.stringify(state.segmentColorState || {})); // ← 保存追加
         localStorage.setItem(STORAGE_KEY_SELECTED_PREFS, JSON.stringify(state.selectedPrefCodes));
         localStorage.setItem(STORAGE_KEY_ISLANDS, JSON.stringify(state.includeIslands));
         localStorage.setItem(STORAGE_KEY_BOUNDARIES, JSON.stringify(state.boundarySettings));
@@ -436,6 +439,7 @@ export function loadFromLocalStorage() {
         const savedState = localStorage.getItem(STORAGE_KEY_COLOR_STATE);
         const savedRailwayColors = localStorage.getItem(STORAGE_KEY_RAILWAY_COLOR_STATE);
         const savedStationColors = localStorage.getItem(STORAGE_KEY_STATION_COLOR_STATE);
+        const savedSegmentColors = localStorage.getItem(STORAGE_KEY_SEGMENT_COLOR_STATE); // ← 復元追加
         const savedPrefs = localStorage.getItem(STORAGE_KEY_SELECTED_PREFS);
         const savedIslands = localStorage.getItem(STORAGE_KEY_ISLANDS);
         const savedBoundaries = localStorage.getItem(STORAGE_KEY_BOUNDARIES);
@@ -453,6 +457,7 @@ export function loadFromLocalStorage() {
         if (savedState) state.colorState = JSON.parse(savedState) || {};
         if (savedRailwayColors) state.railwayColorState = JSON.parse(savedRailwayColors) || {};
         if (savedStationColors) state.stationColorState = JSON.parse(savedStationColors) || {};
+        if (savedSegmentColors) state.segmentColorState = JSON.parse(savedSegmentColors) || {}; // ← 反映
         if (savedPrefs) state.selectedPrefCodes = JSON.parse(savedPrefs) || ["ALL"];
         if (savedIslands) state.includeIslands = { ...state.includeIslands, ...JSON.parse(savedIslands) };
         if (savedBoundaries) state.boundarySettings = { ...state.boundarySettings, ...JSON.parse(savedBoundaries) };
@@ -605,9 +610,11 @@ export function generateMapSvgString() {
 
             const lineKey = getLineKey(f.properties);
             if (!isStation && lineKey && state.railwayColorState[lineKey]) {
+                const lnCustom = state.railwayColorState[lineKey];
+                const coloredHex = typeof lnCustom === 'string' ? lnCustom : lnCustom.color;
                 style = {
                     ...style,
-                    color: state.railwayColorState[lineKey],
+                    color: coloredHex || style.color,
                     weight: (state.railwayConfig.line.weight || 2.0) + 2.0,
                     opacity: 1.0
                 };
@@ -715,6 +722,7 @@ export function exportStateJson() {
         colorState: state.colorState,
         railwayColorState: state.railwayColorState,
         stationColorState: state.stationColorState,
+        segmentColorState: state.segmentColorState, // ← JSON出力に追加
         defaultLandColor: state.defaultLandColor,
         enableLandOpacity: state.enableLandOpacity,
         defaultLandOpacity: state.defaultLandOpacity,
