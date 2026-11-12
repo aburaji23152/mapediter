@@ -1,5 +1,5 @@
 // Service Worker (sw.js)
-const CACHE_NAME = 'map-editer-v1.8.17';
+const CACHE_NAME = 'map-editer-v1.8.18';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
