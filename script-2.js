@@ -977,37 +977,118 @@ function getResolvedStationStyle(feature) {
     };
 }
 
-// 路線に含まれる駅リストおよび隣接する全駅間（区間）の抽出補助関数
+// 路線に含まれる駅および「起点から順番に並べた駅間（区間）」のトポロジー解析抽出関数
 function getLineComponents(targetLineKey) {
     if (!state.boundaryGeoJsons.railway) return { stations: [], segments: [] };
 
     const features = state.boundaryGeoJsons.railway.features || [];
-    const stationMap = new Map();
-    const segments = [];
+    const stationFeatures = [];
+    const lineFeatures = [];
 
     features.forEach(f => {
         const props = f.properties || {};
-        const lKey = getLineKey(props);
-        const stName = getStationName(props);
-
-        if (lKey === targetLineKey && stName) {
-            const stKey = getStationKey(props);
-            if (!stationMap.has(stName)) {
-                stationMap.set(stName, { name: stName, key: stKey, feature: f });
-            }
+        if (getLineKey(props) === targetLineKey) {
+            if (getStationName(props)) stationFeatures.push(f);
+            else if (f.geometry?.type === "LineString" || f.geometry?.type === "MultiLineString") lineFeatures.push(f);
         }
     });
 
-    const stationList = Array.from(stationMap.values());
+    if (stationFeatures.length === 0) return { stations: [], segments: [] };
 
-    for (let i = 0; i < stationList.length - 1; i++) {
-        segments.push({
-            from: stationList[i].name,
-            to: stationList[i + 1].name
-        });
+    // 1. 各駅の座標を取得
+    const stations = stationFeatures.map(f => {
+        const props = f.properties || {};
+        const name = getStationName(props);
+        const key = getStationKey(props);
+        const coords = f.geometry.type === "Point" ? f.geometry.coordinates : getCenterLatLng(f.geometry.coordinates);
+        return { name, key, feature: f, lng: coords[0], lat: coords[1] };
+    });
+
+    // 2. 線の幾何形状から駅同士の接続グラフを構築
+    const adjMap = new Map();
+    stations.forEach(st => adjMap.set(st.name, new Set()));
+
+    function getDistanceSq(x1, y1, x2, y2) {
+        return (x1 - x2) ** 2 + (y1 - y2) ** 2;
     }
 
-    return { stations: stationList, segments };
+    function findClosestStation(lng, lat) {
+        let minDist = Infinity;
+        let closest = null;
+        stations.forEach(st => {
+            const dist = getDistanceSq(lng, lat, st.lng, st.lat);
+            if (dist < minDist) {
+                minDist = dist;
+                closest = st;
+            }
+        });
+        return closest;
+    }
+
+    lineFeatures.forEach(lf => {
+        const geom = lf.geometry;
+        const processLineCoords = (coords) => {
+            if (coords.length < 2) return;
+            const startPt = coords[0];
+            const endPt = coords[coords.length - 1];
+
+            const stA = findClosestStation(startPt[0], startPt[1]);
+            const stB = findClosestStation(endPt[0], endPt[1]);
+
+            if (stA && stB && stA.name !== stB.name) {
+                adjMap.get(stA.name).add(stB.name);
+                adjMap.get(stB.name).add(stA.name);
+            }
+        };
+
+        if (geom.type === "LineString") processLineCoords(geom.coordinates);
+        else if (geom.type === "MultiLineString") geom.coordinates.forEach(processLineCoords);
+    });
+
+    // 3. 起点（次数1の端点、無ければ西端/南端）を特定してオイラーパス順順序生成
+    let startStName = null;
+    for (const [stName, neighbors] of adjMap.entries()) {
+        if (neighbors.size === 1) {
+            startStName = stName;
+            break;
+        }
+    }
+
+    if (!startStName && stations.length > 0) {
+        // ループや分岐路線等の場合は最も西にある駅を起点とする
+        stations.sort((a, b) => a.lng - b.lng);
+        startStName = stations[0].name;
+    }
+
+    const orderedStations = [];
+    const orderedSegments = [];
+    const visited = new Set();
+
+    let current = startStName;
+    while (current && !visited.has(current)) {
+        visited.add(current);
+        const stObj = stations.find(s => s.name === current);
+        if (stObj) orderedStations.push(stObj);
+
+        const neighbors = Array.from(adjMap.get(current) || []);
+        const next = neighbors.find(n => !visited.has(n));
+
+        if (next) {
+            orderedSegments.push({ from: current, to: next });
+            current = next;
+        } else {
+            break;
+        }
+    }
+
+    // 訪問されなかった駅（孤立・分岐）を末尾に追加
+    stations.forEach(st => {
+        if (!visited.has(st.name)) {
+            orderedStations.push(st);
+        }
+    });
+
+    return { stations: orderedStations, segments: orderedSegments };
 }
 
 async function renderRailwayLayer() {
@@ -1076,6 +1157,35 @@ async function renderRailwayLayer() {
 
     const features = state.boundaryGeoJsons.railway.features || [];
 
+    // 駅位置の探索マップ
+    const stationMap = new Map();
+    features.forEach(f => {
+        const props = f.properties || {};
+        const stName = getStationName(props);
+        const geom = f.geometry;
+        if (stName && geom) {
+            const coords = geom.type === "Point" ? geom.coordinates : getCenterLatLng(geom.coordinates);
+            stationMap.set(stName, { lng: coords[0], lat: coords[1] });
+        }
+    });
+
+    function getDistanceSq(x1, y1, x2, y2) {
+        return (x1 - x2) ** 2 + (y1 - y2) ** 2;
+    }
+
+    function findClosestStationName(lng, lat) {
+        let minDist = Infinity;
+        let closest = null;
+        for (const [stName, pos] of stationMap.entries()) {
+            const dist = getDistanceSq(lng, lat, pos.lng, pos.lat);
+            if (dist < minDist) {
+                minDist = dist;
+                closest = stName;
+            }
+        }
+        return closest;
+    }
+
     features.forEach(feature => {
         const props = feature.properties || {};
         const geom = feature.geometry;
@@ -1090,8 +1200,33 @@ async function renderRailwayLayer() {
             const lineKey = getLineKey(props);
 
             const lineCustom = lineKey ? state.railwayColorState[lineKey] : null;
-            const coloredHex = lineCustom ? (typeof lineCustom === 'string' ? lineCustom : lineCustom.color) : null;
-            const isSelected = Boolean(coloredHex);
+            const lineColoredHex = lineCustom ? (typeof lineCustom === 'string' ? lineCustom : lineCustom.color) : null;
+
+            // 線路セグメントの両端から最寄りの駅名を取得して segmentKey を判定
+            let segKey = null;
+            let fromSt = null, toSt = null;
+            const coords = geom.type === "LineString" ? geom.coordinates : geom.coordinates[0];
+            if (coords && coords.length >= 2) {
+                fromSt = findClosestStationName(coords[0][0], coords[0][1]);
+                toSt = findClosestStationName(coords[coords.length - 1][0], coords[coords.length - 1][1]);
+                if (fromSt && toSt) {
+                    segKey = `${lineKey}_seg_${fromSt}_${toSt}`;
+                    const reverseKey = `${lineKey}_seg_${toSt}_${fromSt}`;
+                    if (!state.segmentColorState?.[segKey] && state.segmentColorState?.[reverseKey]) {
+                        segKey = reverseKey;
+                    }
+                }
+            }
+
+            // 保存用のコンテキスト情報をFeatureに付与
+            feature.properties.fromStation = fromSt;
+            feature.properties.toStation = toSt;
+
+            const segCustom = segKey ? state.segmentColorState?.[segKey] : null;
+
+            const finalColor = segCustom?.color || lineColoredHex || baseStyle.color;
+            const finalWeight = segCustom?.weight !== undefined ? segCustom.weight : (lineColoredHex ? (state.railwayConfig.line.weight || 2.0) + 2.0 : baseStyle.weight);
+            const isSelected = Boolean(lineColoredHex || segCustom);
 
             const hitLine = L.geoJSON(feature, {
                 pane: "railwayPane",
@@ -1109,8 +1244,8 @@ async function renderRailwayLayer() {
                 pane: "railwayPane",
                 style: {
                     ...baseStyle,
-                    color: isSelected ? coloredHex : baseStyle.color,
-                    weight: isSelected ? (state.railwayConfig.line.weight || 2.0) + 2.0 : baseStyle.weight,
+                    color: finalColor,
+                    weight: finalWeight,
                     opacity: isSelected ? 1.0 : baseStyle.opacity,
                     interactive: false
                 }
@@ -1179,21 +1314,21 @@ function updateLineHighlight(targetLineKey, isHover) {
                 const target = group.displayTarget;
                 if (target && target.setStyle) {
                     const baseStyle = getRailwayFeatureStyle(feat);
-                    if (coloredHex) {
-                        target.setStyle({
-                            color: coloredHex,
-                            weight: (state.railwayConfig.line.weight || 2.0) + (isHover ? 3.0 : 2.0),
-                            opacity: 1.0
-                        });
-                    } else if (isHover) {
-                        target.setStyle({
-                            color: "#ef4444",
-                            weight: (state.railwayConfig.line.weight || 2.0) + 3.0,
-                            opacity: 1.0
-                        });
-                    } else {
-                        target.setStyle(baseStyle);
-                    }
+                    
+                    const segFrom = lProps.fromStation;
+                    const segTo = lProps.toStation;
+                    const segKey = (segFrom && segTo) ? `${targetLineKey}_seg_${segFrom}_${segTo}` : null;
+                    const reverseSegKey = (segFrom && segTo) ? `${targetLineKey}_seg_${segTo}_${segFrom}` : null;
+                    const segCustom = state.segmentColorState?.[segKey] || state.segmentColorState?.[reverseSegKey];
+
+                    const lineColor = segCustom?.color || coloredHex || (isHover ? "#ef4444" : baseStyle.color);
+                    const lineWeight = (segCustom?.weight !== undefined ? segCustom.weight : (state.railwayConfig.line.weight || 2.0)) + (isHover ? 3.0 : (coloredHex ? 2.0 : 0));
+
+                    target.setStyle({
+                        color: lineColor,
+                        weight: lineWeight,
+                        opacity: 1.0
+                    });
                 }
             }
         };
@@ -1493,16 +1628,16 @@ function renderRailwayControlPanel() {
                                 </div>
 
                                 <div id="listSubSegments" class="space-y-2">
-                                    ${segments.length === 0 ? '<div class="text-[10px] text-slate-400 text-center py-2">駅間データがありません</div>' : segments.map((seg) => {
+                                    ${segments.length === 0 ? '<div class="text-[10px] text-slate-400 text-center py-2">駅間データがありません</div>' : segments.map((seg, idx) => {
                                         const segKey = `${lineKey}_seg_${seg.from}_${seg.to}`;
                                         const currentSeg = state.segmentColorState?.[segKey] || {};
                                         const color = currentSeg.color || currentColor;
-                                        const weight = currentSeg.weight !== undefined ? currentSeg.weight : 4;
+                                        const weight = currentSeg.weight !== undefined ? currentSeg.weight : (state.railwayConfig.line.weight || 2.0);
 
                                         return `
                                             <div class="p-2 bg-white rounded border border-slate-200 text-[11px] space-y-1.5">
                                                 <div class="font-bold text-slate-700 flex justify-between items-center">
-                                                    <span>${seg.from} ↔ ${seg.to}</span>
+                                                    <span><span class="text-slate-400 font-normal mr-1">${idx + 1}.</span>${seg.from} ↔ ${seg.to}</span>
                                                     <button type="button" class="btn-reset-seg text-[10px] text-slate-400 hover:text-rose-500 cursor-pointer" data-seg-key="${segKey}">初期化</button>
                                                 </div>
                                                 <div class="flex items-center justify-between gap-2">
@@ -1519,7 +1654,7 @@ function renderRailwayControlPanel() {
                                 </div>
 
                                 <div id="listSubStations" class="hidden space-y-2">
-                                    ${stations.length === 0 ? '<div class="text-[10px] text-slate-400 text-center py-2">駅データがありません</div>' : stations.map(st => {
+                                    ${stations.length === 0 ? '<div class="text-[10px] text-slate-400 text-center py-2">駅データがありません</div>' : stations.map((st, idx) => {
                                         const stKey = st.key;
                                         const stCustom = state.stationColorState?.[stKey] || {};
                                         const fillColor = stCustom.color || lineStColor;
@@ -1528,7 +1663,7 @@ function renderRailwayControlPanel() {
                                         return `
                                             <div class="p-2 bg-white rounded border border-slate-200 text-[11px] space-y-1.5">
                                                 <div class="font-bold text-slate-700 flex justify-between items-center">
-                                                    <span>${st.name}駅</span>
+                                                    <span><span class="text-slate-400 font-normal mr-1">${idx + 1}.</span>${st.name}駅</span>
                                                     <button type="button" class="btn-reset-st-sub text-[10px] text-slate-400 hover:text-rose-500 cursor-pointer" data-st-key="${stKey}">初期化</button>
                                                 </div>
                                                 <div class="flex items-center justify-between">
@@ -2026,7 +2161,7 @@ function importStateJson(e) {
                 state.colorState = { ...state.colorState, ...data.colorState };
                 if (data.railwayColorState) state.railwayColorState = data.railwayColorState;
                 if (data.stationColorState) state.stationColorState = data.stationColorState;
-                if (data.segmentColorState) state.segmentColorState = data.segmentColorState; // ← リストア追加
+                if (data.segmentColorState) state.segmentColorState = data.segmentColorState;
                 if (data.defaultLandColor) state.defaultLandColor = data.defaultLandColor;
                 if (data.enableLandOpacity !== undefined) state.enableLandOpacity = data.enableLandOpacity;
                 if (data.defaultLandOpacity !== undefined) state.defaultLandOpacity = parseFloat(data.defaultLandOpacity);
